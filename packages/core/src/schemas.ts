@@ -101,3 +101,129 @@ export const paginationQuerySchema = z.strictObject({
   limit: z.coerce.number().int().min(1).max(100).default(50),
   cursor: z.string().max(200).optional(),
 });
+
+// ── Phase 2: routing ──────────────────────────────────────────────────────────
+
+const timezoneSchema = z.string().refine(isValidTimeZone, 'Unknown time zone');
+const clockSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$|^24:00$/, 'Use HH:MM (24-hour)');
+const localDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
+const optionalCap = z.number().int().min(1).max(1_000_000).nullable();
+
+export const routingModeSchema = z.enum(['sequential', 'simultaneous']);
+export const campaignStatusSchema = z.enum(['active', 'paused', 'archived']);
+export const attestationPolicySchema = z.enum([
+  'allow_all',
+  'block_failed',
+  'require_a_or_b',
+  'require_a',
+]);
+
+export const createCampaignBodySchema = z.strictObject({
+  name: z.string().trim().min(1, 'Required').max(100),
+  routingMode: routingModeSchema.default('sequential'),
+  ringTimeoutSec: ringTimeoutSchema.default(25),
+});
+export type CreateCampaignBody = z.infer<typeof createCampaignBodySchema>;
+
+export const updateCampaignBodySchema = z
+  .strictObject({
+    name: z.string().trim().min(1).max(100).optional(),
+    status: campaignStatusSchema.optional(),
+    routingMode: routingModeSchema.optional(),
+    ringTimeoutSec: ringTimeoutSchema.optional(),
+    unavailableMessage: z.string().trim().max(300).nullable().optional(),
+    ivr: z
+      .strictObject({
+        enabled: z.boolean().optional(),
+        prompt: z.string().trim().max(300).nullable().optional(),
+        digit: z
+          .string()
+          .regex(/^[0-9]$/, 'One digit, 0–9')
+          .nullable()
+          .optional(),
+        randomDigit: z.boolean().optional(),
+        timeoutSec: z.number().int().min(3).max(30).optional(),
+      })
+      .optional(),
+    protection: z
+      .strictObject({
+        attestationPolicy: attestationPolicySchema.optional(),
+        perMinute: z.number().int().min(1).max(1000).nullable().optional(),
+        perHour: z.number().int().min(1).max(10_000).nullable().optional(),
+      })
+      .optional(),
+  })
+  .refine((v) => Object.keys(v).length > 0, 'Nothing to update');
+export type UpdateCampaignBody = z.infer<typeof updateCampaignBodySchema>;
+
+export const targetBodySchema = z.strictObject({
+  name: z.string().trim().min(1, 'Required').max(100),
+  destination: e164Schema,
+  priorityTier: z.number().int().min(1).max(10).default(1),
+  weight: z.number().int().min(0).max(1000).default(100),
+  ccCap: z.number().int().min(1).max(1000).default(10),
+  hourlyCap: optionalCap.default(null),
+  dailyCap: optionalCap.default(null),
+  totalCap: optionalCap.default(null),
+  enabled: z.boolean().default(true),
+});
+export type TargetBody = z.infer<typeof targetBodySchema>;
+
+export const updateTargetBodySchema = z
+  .strictObject({
+    name: z.string().trim().min(1).max(100).optional(),
+    destination: e164Schema.optional(),
+    priorityTier: z.number().int().min(1).max(10).optional(),
+    weight: z.number().int().min(0).max(1000).optional(),
+    ccCap: z.number().int().min(1).max(1000).optional(),
+    hourlyCap: optionalCap.optional(),
+    dailyCap: optionalCap.optional(),
+    totalCap: optionalCap.optional(),
+    enabled: z.boolean().optional(),
+  })
+  .refine((v) => Object.keys(v).length > 0, 'Nothing to update');
+export type UpdateTargetBody = z.infer<typeof updateTargetBodySchema>;
+
+export const scheduleWindowSchema = z.discriminatedUnion('type', [
+  z.strictObject({
+    type: z.literal('weekly'),
+    dayOfWeek: z.number().int().min(0).max(6),
+    open: clockSchema,
+    close: clockSchema,
+  }),
+  z
+    .strictObject({
+      type: z.literal('date'),
+      start: localDateSchema,
+      end: localDateSchema,
+      kind: z.enum(['open', 'closed']),
+      open: clockSchema.nullable().default(null),
+      close: clockSchema.nullable().default(null),
+    })
+    .refine((w) => w.end >= w.start, { message: 'End date is before start date', path: ['end'] })
+    .refine((w) => (w.open === null) === (w.close === null), {
+      message: 'Give both an opening and a closing time, or neither',
+      path: ['close'],
+    }),
+]);
+
+export const scheduleBodySchema = z.strictObject({
+  timezone: timezoneSchema,
+  windows: z.array(scheduleWindowSchema).max(60),
+});
+export type ScheduleBody = z.infer<typeof scheduleBodySchema>;
+
+export const attachNumberBodySchema = z.strictObject({ numberId: z.uuid() });
+
+export const blocklistBodySchema = z.strictObject({
+  e164: e164Schema,
+  reason: z.string().trim().max(200).nullable().default(null),
+});
+
+export const explainBodySchema = z.strictObject({
+  at: z
+    .string()
+    .refine((v) => !Number.isNaN(Date.parse(v)), 'Invalid date')
+    .optional(),
+  triedTargetIds: z.array(z.uuid()).max(50).default([]),
+});

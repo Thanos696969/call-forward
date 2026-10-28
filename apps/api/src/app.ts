@@ -22,7 +22,9 @@ import { forwardingRoutes } from './routes/forwarding';
 import { numberRoutes } from './routes/numbers';
 import { orgRoutes } from './routes/org';
 import { voiceRoutes } from './routes/voice';
-import { RouteCache } from '@relay/routing';
+import { RedisReserver, RouteCache } from '@relay/routing';
+import { blocklistRoutes } from './routes/blocklist';
+import { campaignRoutes } from './routes/campaigns';
 import { voiceUrls } from './config';
 import { VoiceService } from './services/voice';
 import type { AppDeps } from './types';
@@ -60,6 +62,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   app.decorate('deps', deps);
   const routeCache = new RouteCache(deps.redis, deps.sql, app.log);
   app.decorate('routeCache', routeCache);
+  app.decorate('reserver', new RedisReserver(deps.redis));
   app.decorate(
     'voice',
     new VoiceService({
@@ -96,7 +99,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await app.register(cors, {
     origin: [deps.config.webOrigin],
     credentials: true,
-    methods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
     allowedHeaders: ['content-type', 'x-csrf-token', 'x-request-id'],
   });
   await app.register(cookie);
@@ -189,6 +192,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await app.register(numberRoutes, { prefix: '/api/v1' });
   await app.register(forwardingRoutes, { prefix: '/api/v1' });
   await app.register(callRoutes, { prefix: '/api/v1' });
+  await app.register(campaignRoutes, { prefix: '/api/v1' });
+  await app.register(blocklistRoutes, { prefix: '/api/v1' });
 
   return app;
 }

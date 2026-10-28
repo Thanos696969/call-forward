@@ -6,7 +6,7 @@ import type { Database } from '@relay/db';
 import type { Config } from './config';
 import type { CallJobs } from './lib/jobs';
 import type { Mailer } from './lib/mailer';
-import type { RouteCache } from '@relay/routing';
+import type { RedisReserver, RouteCache } from '@relay/routing';
 import type { VoiceService } from './services/voice';
 
 export interface AppDeps {
@@ -33,6 +33,7 @@ declare module 'fastify' {
     deps: AppDeps;
     routeCache: RouteCache;
     voice: VoiceService;
+    reserver: RedisReserver;
   }
   interface FastifyRequest {
     /** Raw body for form-encoded carrier webhooks (needed for signature checks). */

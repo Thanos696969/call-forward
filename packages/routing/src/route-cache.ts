@@ -73,7 +73,8 @@ export async function compileRoute(sql: Sql, e164: string): Promise<CompiledRout
                 s.timezone as schedule_tz,
                 (select json_agg(json_build_object(
                    'day_of_week', w.day_of_week, 'open_time', w.open_time, 'close_time', w.close_time,
-                   'date_start', w.date_start, 'date_end', w.date_end, 'kind', w.kind) order by w.id)
+                   'date_start', w.date_start, 'date_end', w.date_end, 'kind', w.kind)
+                   order by (w.date_start is not null), w.day_of_week, w.date_start, w.open_time)
                  from schedule_windows w where w.schedule_id = s.id) as windows
          from targets tg
          left join schedules s on s.target_id = tg.id
@@ -85,7 +86,6 @@ export async function compileRoute(sql: Sql, e164: string): Promise<CompiledRout
     limit 1`;
   const row = rows[0];
   if (!row) return null;
-  const c = row.campaign;
   return {
     version: 2,
     numberId: row.number_id,
@@ -93,52 +93,107 @@ export async function compileRoute(sql: Sql, e164: string): Promise<CompiledRout
     orgTimezone: row.org_timezone,
     e164: row.e164,
     orgStatus: row.org_status,
-    campaign: c
-      ? {
-          id: c.id,
-          name: c.name,
-          status: c.status,
-          routingMode: c.routing_mode,
-          ringTimeoutSec: c.ring_timeout_sec,
-          ivr: {
-            enabled: c.ivr_enabled,
-            prompt: c.ivr_prompt,
-            digit: c.ivr_digit,
-            randomDigit: c.ivr_random_digit,
-            timeoutSec: c.ivr_timeout_sec,
-          },
-          protection: {
-            attestationPolicy: c.attestation_policy,
-            perMinute: c.caller_limit_per_minute,
-            perHour: c.caller_limit_per_hour,
-          },
-          unavailableMessage: c.unavailable_message,
-        }
-      : null,
-    targets: row.targets.map((t) => ({
-      id: t.id,
-      name: t.name,
-      type: t.type,
-      destination: t.destination,
-      priorityTier: t.priority_tier,
-      weight: t.weight,
-      enabled: t.enabled,
-      ccCap: t.cc_cap,
-      hourlyCap: t.hourly_cap,
-      dailyCap: t.daily_cap,
-      totalCap: t.total_cap,
-      capTimezone: t.schedule_tz ?? row.org_timezone,
-      schedule: t.schedule_tz
-        ? {
-            timezone: t.schedule_tz,
-            windows: (t.windows ?? []).map(toWindow),
-          }
-        : null,
-    })),
+    campaign: row.campaign ? mapCampaign(row.campaign) : null,
+    targets: mapTargets(row.targets, row.org_timezone),
   };
 }
 
-function toWindow(w: NonNullable<RouteRow['targets'][number]['windows']>[number]): ScheduleWindow {
+type CampaignRow = NonNullable<RouteRow['campaign']>;
+type TargetRow = RouteRow['targets'][number];
+
+function mapCampaign(c: CampaignRow): CompiledCampaign {
+  return {
+    id: c.id,
+    name: c.name,
+    status: c.status,
+    routingMode: c.routing_mode,
+    ringTimeoutSec: c.ring_timeout_sec,
+    ivr: {
+      enabled: c.ivr_enabled,
+      prompt: c.ivr_prompt,
+      digit: c.ivr_digit,
+      randomDigit: c.ivr_random_digit,
+      timeoutSec: c.ivr_timeout_sec,
+    },
+    protection: {
+      attestationPolicy: c.attestation_policy,
+      perMinute: c.caller_limit_per_minute,
+      perHour: c.caller_limit_per_hour,
+    },
+    unavailableMessage: c.unavailable_message,
+  };
+}
+
+function mapTargets(rows: TargetRow[], orgTimezone: string): CompiledTarget[] {
+  return rows.map((t) => ({
+    id: t.id,
+    name: t.name,
+    type: t.type,
+    destination: t.destination,
+    priorityTier: t.priority_tier,
+    weight: t.weight,
+    enabled: t.enabled,
+    ccCap: t.cc_cap,
+    hourlyCap: t.hourly_cap,
+    dailyCap: t.daily_cap,
+    totalCap: t.total_cap,
+    capTimezone: t.schedule_tz ?? orgTimezone,
+    schedule: t.schedule_tz
+      ? { timezone: t.schedule_tz, windows: (t.windows ?? []).map(toWindow) }
+      : null,
+  }));
+}
+
+/** Compile a campaign on its own (no number): used by the routing dry-run. Org-scoped. */
+export async function compileCampaign(
+  sql: Sql,
+  orgId: string,
+  campaignId: string,
+): Promise<{
+  campaign: CompiledCampaign;
+  targets: CompiledTarget[];
+  orgTimezone: string;
+  orgStatus: CompiledRoute['orgStatus'];
+} | null> {
+  const rows = await sql<
+    Array<{
+      org_timezone: string;
+      org_status: CompiledRoute['orgStatus'];
+      campaign: CampaignRow;
+      targets: TargetRow[];
+    }>
+  >`
+    select o.timezone as org_timezone, o.status as org_status,
+      (select to_json(c) from (
+         select id, name, status, routing_mode, ring_timeout_sec, ivr_enabled, ivr_prompt, ivr_digit,
+                ivr_random_digit, ivr_timeout_sec, attestation_policy, caller_limit_per_minute,
+                caller_limit_per_hour, unavailable_message
+         from campaigns where id = ${campaignId} and org_id = ${orgId}) c) as campaign,
+      (select coalesce(json_agg(t order by t.priority_tier, t.created_at, t.id), '[]'::json) from (
+         select tg.id, tg.name, tg.target_type as type, tg.destination, tg.priority_tier, tg.weight,
+                tg.enabled, tg.cc_cap, tg.hourly_cap, tg.daily_cap, tg.total_cap, tg.created_at,
+                s.timezone as schedule_tz,
+                (select json_agg(json_build_object(
+                   'day_of_week', w.day_of_week, 'open_time', w.open_time, 'close_time', w.close_time,
+                   'date_start', w.date_start, 'date_end', w.date_end, 'kind', w.kind)
+                   order by (w.date_start is not null), w.day_of_week, w.date_start, w.open_time)
+                 from schedule_windows w where w.schedule_id = s.id) as windows
+         from targets tg
+         left join schedules s on s.target_id = tg.id
+         where tg.campaign_id = ${campaignId} and tg.org_id = ${orgId} and tg.archived_at is null) t
+      ) as targets
+    from organizations o where o.id = ${orgId}`;
+  const row = rows[0];
+  if (!row?.campaign) return null;
+  return {
+    campaign: mapCampaign(row.campaign),
+    targets: mapTargets(row.targets, row.org_timezone),
+    orgTimezone: row.org_timezone,
+    orgStatus: row.org_status,
+  };
+}
+
+function toWindow(w: NonNullable<TargetRow['windows']>[number]): ScheduleWindow {
   if (w.day_of_week !== null && w.date_start === null) {
     return {
       type: 'weekly',

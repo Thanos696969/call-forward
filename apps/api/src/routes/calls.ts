@@ -5,14 +5,17 @@ import {
   MISSED_OUTCOMES,
   dashboardQuerySchema,
   listCallsQuerySchema,
+  type CallAttemptDto,
   type CallDetailDto,
+  type LiveCallDto,
+  type RoutingEventDto,
   type CallDto,
   type DashboardSummaryDto,
 } from '@relay/core';
 import { decodeCursor, encodeCursor } from '../lib/cursor';
 import { badRequest, notFound } from '../lib/errors';
 import { iso, isoReq, ok } from '../lib/http';
-import { READ_ROLES, authOf, requireRole } from '../plugins/auth';
+import { READ_ROLES, WRITE_ROLES, authOf, requireRole } from '../plugins/auth';
 import { getOrg } from '../services/org';
 import { assertId, idParams } from './numbers';
 
@@ -100,6 +103,76 @@ export const callRoutes: FastifyPluginAsyncZod = async (app) => {
   );
 
   app.get(
+    '/calls/live',
+    { schema: { tags: ['calls'] }, preHandler: requireRole(deps, ...READ_ROLES) },
+    async (req) => {
+      const auth = authOf(req);
+      const rows = await sql<
+        {
+          id: string;
+          from_e164: string;
+          to_e164: string;
+          started_at: Date;
+          campaign_id: string | null;
+          campaign_name: string | null;
+          metadata: { lastResponse?: { kind?: string }; ivrResult?: string };
+          attempt: number | null;
+          legs: Array<{
+            target_id: string | null;
+            target_name: string | null;
+            destination: string | null;
+            attempt: number;
+            started_at: string;
+            answered_at: string | null;
+          }> | null;
+        }[]
+      >`
+        select c.id, c.from_e164, c.to_e164, c.started_at, c.campaign_id, cp.name as campaign_name, c.metadata,
+          (select max(a.attempt) from call_attempts a where a.call_id = c.id) as attempt,
+          (select json_agg(json_build_object('target_id', l.target_id, 'target_name', t.name, 'destination', l.destination,
+                   'attempt', l.attempt, 'started_at', l.started_at, 'answered_at', l.answered_at) order by l.started_at)
+           from call_legs l left join targets t on t.id = l.target_id and t.org_id = c.org_id
+           where l.call_id = c.id and l.ended_at is null) as legs
+        from calls c
+        left join campaigns cp on cp.id = c.campaign_id and cp.org_id = c.org_id
+        where c.org_id = ${auth.orgId} and c.outcome = 'in_progress' and c.started_at > now() - interval '4 hours'
+        order by c.started_at desc
+        limit 200`;
+      const data: LiveCallDto[] = rows.map((r) => {
+        const legs = (r.legs ?? []).map((l) => ({
+          targetId: l.target_id,
+          targetName: l.target_name,
+          destination: l.destination,
+          attempt: l.attempt,
+          state: (l.answered_at ? 'connected' : 'ringing') as 'connected' | 'ringing',
+          startedAt: new Date(l.started_at).toISOString(),
+          answeredAt: l.answered_at ? new Date(l.answered_at).toISOString() : null,
+        }));
+        const state: LiveCallDto['state'] =
+          r.metadata.lastResponse?.kind === 'gather' && !r.metadata.ivrResult
+            ? 'ivr'
+            : legs.some((l) => l.state === 'connected')
+              ? 'connected'
+              : legs.length > 0
+                ? 'ringing'
+                : 'routing';
+        return {
+          id: r.id,
+          from: r.from_e164,
+          numberE164: r.to_e164,
+          campaign:
+            r.campaign_id && r.campaign_name ? { id: r.campaign_id, name: r.campaign_name } : null,
+          startedAt: isoReq(r.started_at),
+          state,
+          attempt: r.attempt ?? 0,
+          legs,
+        };
+      });
+      return ok(data, { serverTime: new Date().toISOString() });
+    },
+  );
+
+  app.get(
     '/calls/:id',
     { schema: { tags: ['calls'], params: idParams }, preHandler: requireRole(deps, ...READ_ROLES) },
     async (req) => {
@@ -110,21 +183,29 @@ export const callRoutes: FastifyPluginAsyncZod = async (app) => {
           provider_call_id: string;
           hangup_cause: string | null;
           metadata: Record<string, unknown>;
+          campaign_id: string | null;
+          campaign_name: string | null;
         })[]
       >`
         select c.id, c.number_id, c.to_e164, c.from_e164,
                coalesce(t.destination, c.metadata->>'destination') as destination,
                c.started_at, c.answered_at, c.ended_at, c.ring_seconds, c.talk_seconds,
-               c.billed_seconds, c.outcome, c.provider, c.provider_call_id, c.hangup_cause, c.metadata
+               c.billed_seconds, c.outcome, c.provider, c.provider_call_id, c.hangup_cause, c.metadata,
+               c.campaign_id, cp.name as campaign_name
         from calls c
         left join targets t on t.id = c.target_id and t.org_id = c.org_id
+        left join campaigns cp on cp.id = c.campaign_id and cp.org_id = c.org_id
         where c.org_id = ${auth.orgId} and c.id = ${id}`;
       if (!row) throw notFound('Call');
       const legs = await sql<
         {
           id: string;
           attempt: number;
+          tier: number | null;
+          target_id: string | null;
+          target_name: string | null;
           destination: string | null;
+          talk_seconds: number | null;
           started_at: Date;
           answered_at: Date | null;
           ended_at: Date | null;
@@ -132,20 +213,52 @@ export const callRoutes: FastifyPluginAsyncZod = async (app) => {
           sip_code: number | null;
         }[]
       >`
-        select l.id, l.attempt, t.destination, l.started_at, l.answered_at, l.ended_at, l.outcome, l.sip_code
+        select l.id, l.attempt, l.tier, l.target_id, t.name as target_name,
+               coalesce(l.destination, t.destination) as destination, l.talk_seconds,
+               l.started_at, l.answered_at, l.ended_at, l.outcome, l.sip_code
         from call_legs l
         join calls c on c.id = l.call_id and c.org_id = ${auth.orgId}
         left join targets t on t.id = l.target_id and t.org_id = c.org_id
         where l.call_id = ${id}
-        order by l.attempt`;
+        order by l.attempt, l.started_at, l.id`;
+      const attempts = await sql<
+        {
+          attempt: number;
+          mode: CallAttemptDto['mode'];
+          tier: number;
+          ring_timeout_sec: number;
+          dial_status: string | null;
+          created_at: Date;
+          completed_at: Date | null;
+        }[]
+      >`
+        select attempt, mode, tier, ring_timeout_sec, dial_status, created_at, completed_at
+        from call_attempts where call_id = ${id} and org_id = ${auth.orgId} order by attempt`;
       const dto: CallDetailDto = {
         ...toCallDto(row),
         providerCallId: row.provider_call_id,
         hangupCause: row.hangup_cause,
         metadata: row.metadata,
+        campaign:
+          row.campaign_id && row.campaign_name
+            ? { id: row.campaign_id, name: row.campaign_name }
+            : null,
+        attempts: attempts.map((a) => ({
+          attempt: a.attempt,
+          mode: a.mode,
+          tier: a.tier,
+          ringTimeoutSec: a.ring_timeout_sec,
+          dialStatus: a.dial_status,
+          createdAt: isoReq(a.created_at),
+          completedAt: iso(a.completed_at),
+        })),
         legs: legs.map((l) => ({
           id: l.id,
           attempt: l.attempt,
+          tier: l.tier,
+          targetId: l.target_id,
+          targetName: l.target_name,
+          talkSeconds: l.talk_seconds,
           destination: l.destination ?? row.destination,
           startedAt: isoReq(l.started_at),
           answeredAt: iso(l.answered_at),
@@ -155,6 +268,43 @@ export const callRoutes: FastifyPluginAsyncZod = async (app) => {
         })),
       };
       return ok(dto);
+    },
+  );
+
+  /** Admin-only: why the router did what it did on this call, attempt by attempt. */
+  app.get(
+    '/calls/:id/routing',
+    {
+      schema: { tags: ['routing'], params: idParams },
+      preHandler: requireRole(deps, ...WRITE_ROLES),
+    },
+    async (req) => {
+      const auth = authOf(req);
+      const id = assertId(req.params.id, 'Call');
+      const [exists] = await sql<
+        { id: string }[]
+      >`select id from calls where id = ${id} and org_id = ${auth.orgId}`;
+      if (!exists) throw notFound('Call');
+      const events = await sql<
+        {
+          id: bigint;
+          kind: RoutingEventDto['kind'];
+          attempt: number | null;
+          detail: Record<string, unknown>;
+          created_at: Date;
+        }[]
+      >`
+        select id, kind, attempt, detail, created_at from call_routing_events
+        where call_id = ${id} and org_id = ${auth.orgId} order by id`;
+      return ok<RoutingEventDto[]>(
+        events.map((e) => ({
+          id: e.id.toString(),
+          kind: e.kind,
+          attempt: e.attempt,
+          detail: e.detail,
+          createdAt: isoReq(e.created_at),
+        })),
+      );
     },
   );
 
