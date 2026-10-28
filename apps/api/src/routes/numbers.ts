@@ -52,7 +52,8 @@ export const numberRoutes: FastifyPluginAsyncZod = async (app) => {
           type: q.type,
           prefix: q.prefix,
           contains: q.contains,
-          limit: Math.min(q.limit * 2, 100),
+          // Over-fetch so numbers already owned on Relay can be filtered out.
+          limit: 100,
         });
       } catch (err) {
         req.log.error({ err }, 'number search failed');

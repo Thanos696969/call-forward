@@ -43,7 +43,7 @@ export async function handleInbound(
                          from_e164, to_e164, outcome, hangup_cause, ended_at, billed_seconds, metadata)
       values (${route.orgId}, ${route.campaign?.id ?? null}, ${route.numberId}, ${provider}, ${params.callSid},
               ${from}, ${route.e164}, 'rejected', ${decision.reason}, now(), 0,
-              ${JSON.stringify({ outcomeSource: 'router', stirVerstat: params.stirVerstat ?? null })}::jsonb)
+              ${JSON.stringify({ outcomeSource: 'router', stirVerstat: params.stirVerstat ?? null })}::text::jsonb)
       on conflict (provider, provider_call_id) do nothing`;
     return {
       kind: 'hangup',
@@ -58,7 +58,7 @@ export async function handleInbound(
                          from_e164, to_e164, outcome, metadata)
       values (${route.orgId}, ${route.campaign?.id ?? null}, ${route.numberId}, ${target.id}, ${provider},
               ${params.callSid}, ${from}, ${route.e164}, 'in_progress',
-              ${JSON.stringify({ stirVerstat: params.stirVerstat ?? null, destination: target.destination })}::jsonb)
+              ${JSON.stringify({ stirVerstat: params.stirVerstat ?? null, destination: target.destination })}::text::jsonb)
       on conflict (provider, provider_call_id) do update set provider = excluded.provider
       returning id
     ), leg as (
@@ -91,12 +91,12 @@ export async function handleDialResult(
         outcome = ${outcome},
         talk_seconds = ${talk},
         answered_at = case when ${answered}
-          then coalesce(answered_at, now() - make_interval(secs => ${talk}))
+          then coalesce(answered_at, greatest(started_at, now() - make_interval(secs => ${talk})))
           else answered_at end,
         ended_at = coalesce(ended_at, now()),
         ring_seconds = greatest(0, extract(epoch from (coalesce(ended_at, now()) - started_at))::int - ${talk}),
         hangup_cause = ${params.dialCallStatus ?? null},
-        metadata = metadata || ${JSON.stringify({ outcomeSource: 'dial_result', dialCallSid: params.dialCallSid ?? null })}::jsonb
+        metadata = metadata || ${JSON.stringify({ outcomeSource: 'dial_result', dialCallSid: params.dialCallSid ?? null })}::text::jsonb
       where provider = ${provider} and provider_call_id = ${params.callSid}
         and (outcome = 'in_progress' or metadata->>'outcomeSource' = 'status')
       returning id, outcome, answered_at, ended_at

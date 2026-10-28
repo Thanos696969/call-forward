@@ -42,9 +42,9 @@ export default function LandingPage() {
       </header>
 
       <main className="flex-1">
-        <section className="mx-auto grid max-w-6xl gap-12 px-4 pb-20 pt-10 sm:px-8 lg:grid-cols-[1.05fr_1fr] lg:items-center lg:pt-20">
+        <section className="mx-auto grid max-w-6xl gap-12 px-4 pb-20 pt-10 sm:px-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:items-center lg:pt-20">
           <div className="max-w-xl">
-            <h1 className="text-4xl font-semibold leading-[1.05] tracking-tight sm:text-5xl lg:text-[3.5rem]">
+            <h1 className="text-4xl font-semibold leading-[1.05] tracking-tight sm:text-5xl">
               Get a toll-free number. Ring any phone.
             </h1>
             <p className="mt-5 max-w-[34rem] text-lg leading-relaxed text-muted-foreground">

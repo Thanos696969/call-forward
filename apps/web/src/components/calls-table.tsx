@@ -82,7 +82,7 @@ export function CallsTable({
             <TH>Started</TH>
             <TH>Caller</TH>
             {compact ? null : <TH>Number dialled</TH>}
-            <TH>Rang</TH>
+            {compact ? null : <TH>Forwarded to</TH>}
             <TH>Outcome</TH>
             <TH className="text-right">Talk time</TH>
           </TR>
@@ -105,9 +105,11 @@ export function CallsTable({
               </TD>
               <TD className="tnum">{formatPhone(c.from)}</TD>
               {compact ? null : <TD className="tnum">{formatPhone(c.numberE164)}</TD>}
-              <TD className="tnum text-muted-foreground">
-                {c.destination ? formatPhone(c.destination) : '—'}
-              </TD>
+              {compact ? null : (
+                <TD className="tnum text-muted-foreground">
+                  {c.destination ? formatPhone(c.destination) : '—'}
+                </TD>
+              )}
               <TD>
                 <OutcomeBadge outcome={c.outcome} />
               </TD>

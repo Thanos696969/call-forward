@@ -9,6 +9,8 @@ export default defineConfig({
   clean: true,
   sourcemap: true,
   noExternal: [/^@relay\//],
+  // Native addon: load from node_modules at runtime, never bundle.
+  external: ['@node-rs/argon2'],
   banner: {
     js: "import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);",
   },

@@ -4,18 +4,18 @@ import { Moon, Sun } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { Button } from '@relay/ui';
 
+/** Icon swap is CSS-driven (dark: variant), so server and client markup always match. */
 export function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme();
-  const next = resolvedTheme === 'dark' ? 'light' : 'dark';
   return (
     <Button
       variant="ghost"
       size="icon"
-      onClick={() => setTheme(next)}
-      aria-label={`Switch to ${next} theme`}
+      onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
+      aria-label="Toggle light or dark theme"
     >
-      <Sun className="hidden dark:block" />
-      <Moon className="dark:hidden" />
+      <Sun className="hidden dark:block" aria-hidden />
+      <Moon className="dark:hidden" aria-hidden />
     </Button>
   );
 }

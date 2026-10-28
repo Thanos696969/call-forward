@@ -16,14 +16,18 @@ export function createDb(
   url: string = process.env.DATABASE_URL ?? DEFAULT_DATABASE_URL,
   opts: { max?: number } = {},
 ): DbHandle {
-  const sql = postgres(url, {
-    max: opts.max ?? 10,
-    idle_timeout: 30,
-    connect_timeout: 10,
-    onnotice: () => {},
-    // Postgres bigint → JS bigint for money columns (drizzle mode: 'bigint').
-    types: { bigint: postgres.BigInt },
-  });
-  const db = drizzle(sql, { schema });
-  return { db, sql, close: () => sql.end({ timeout: 5 }) };
+  const common = { idle_timeout: 30, connect_timeout: 10, onnotice: () => {} } as const;
+  const max = opts.max ?? 10;
+  // Drizzle installs its own date parsers on the client it wraps, so raw SQL gets a
+  // separate client that returns native Date and BigInt values.
+  const drizzleClient = postgres(url, { ...common, max });
+  const sql = postgres(url, { ...common, max, types: { bigint: postgres.BigInt } });
+  const db = drizzle(drizzleClient, { schema });
+  return {
+    db,
+    sql,
+    close: async () => {
+      await Promise.all([drizzleClient.end({ timeout: 5 }), sql.end({ timeout: 5 })]);
+    },
+  };
 }
