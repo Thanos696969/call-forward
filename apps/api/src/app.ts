@@ -22,7 +22,9 @@ import { forwardingRoutes } from './routes/forwarding';
 import { numberRoutes } from './routes/numbers';
 import { orgRoutes } from './routes/org';
 import { voiceRoutes } from './routes/voice';
-import { RouteCache } from './services/route-cache';
+import { RouteCache } from '@relay/routing';
+import { voiceUrls } from './config';
+import { VoiceService } from './services/voice';
 import type { AppDeps } from './types';
 
 const REQUEST_ID_RE = /^[A-Za-z0-9._-]{8,64}$/;
@@ -56,7 +58,20 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
   app.decorate('deps', deps);
-  app.decorate('routeCache', new RouteCache(deps.redis, deps.sql, app.log));
+  const routeCache = new RouteCache(deps.redis, deps.sql, app.log);
+  app.decorate('routeCache', routeCache);
+  app.decorate(
+    'voice',
+    new VoiceService({
+      sql: deps.sql,
+      redis: deps.redis,
+      provider: deps.provider,
+      routeCache,
+      urls: voiceUrls(deps.config),
+      log: app.log,
+      ...(deps.random ? { random: deps.random } : {}),
+    }),
+  );
   app.decorateRequest('auth', null);
 
   app.addHook('onRequest', async (req, reply) => {

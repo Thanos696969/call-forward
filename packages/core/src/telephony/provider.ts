@@ -87,6 +87,8 @@ export interface VoiceParams {
   callDuration?: string;
   stirVerstat?: string;
   digits?: string;
+  /** Present on child-leg status callbacks: the inbound call this leg belongs to. */
+  parentCallSid?: string;
   raw: Record<string, string>;
 }
 
@@ -107,6 +109,7 @@ export function parseVoiceParams(rawBody: string): VoiceParams | null {
     callDuration: raw.CallDuration,
     stirVerstat: raw.StirVerstat,
     digits: raw.Digits,
+    parentCallSid: raw.ParentCallSid,
     raw,
   };
 }

@@ -163,6 +163,6 @@ describe('voice webhooks', () => {
       From: '+13125550100',
       To: numberE164,
     });
-    expect(res.body).toContain('<Number>+14155550199</Number>');
+    expect(res.body).toContain('>+14155550199</Number>');
   });
 });

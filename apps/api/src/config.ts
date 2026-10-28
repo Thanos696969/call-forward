@@ -111,5 +111,11 @@ export function voiceUrls(config: Pick<Config, 'publicApiUrl'>) {
     voiceUrl: `${config.publicApiUrl}/voice/inbound`,
     resultUrl: `${config.publicApiUrl}/voice/result`,
     statusUrl: `${config.publicApiUrl}/voice/status`,
+    ivrUrl: `${config.publicApiUrl}/voice/ivr`,
+    attemptResultUrl: (attempt: number) => `${config.publicApiUrl}/voice/result?attempt=${attempt}`,
+    legUrl: (attempt: number, targetId: string) =>
+      `${config.publicApiUrl}/voice/leg?attempt=${attempt}&target=${targetId}`,
   };
 }
+
+export type VoiceUrls = ReturnType<typeof voiceUrls>;

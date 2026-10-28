@@ -21,7 +21,10 @@ export interface Harness {
   close(): Promise<void>;
 }
 
-export async function startHarness(env: Record<string, string> = {}): Promise<Harness> {
+export async function startHarness(
+  env: Record<string, string> = {},
+  opts: { random?: () => number; redis?: Redis } = {},
+): Promise<Harness> {
   const config = loadConfig({
     NODE_ENV: 'test',
     LOG_LEVEL: 'silent',
@@ -34,7 +37,7 @@ export async function startHarness(env: Record<string, string> = {}): Promise<Ha
     ...env,
   });
   const db = createDb(config.databaseUrl, { max: 5 });
-  const redis = new Redis(config.redisUrl, { maxRetriesPerRequest: 1 });
+  const redis = opts.redis ?? new Redis(config.redisUrl, { maxRetriesPerRequest: 1 });
   const jobs = new MemoryCallJobs();
   const mailer = new MemoryMailer();
   const deps: AppDeps = {
@@ -45,6 +48,7 @@ export async function startHarness(env: Record<string, string> = {}): Promise<Ha
     provider: new MockProvider({ webhookSecret: MOCK_SECRET }),
     jobs,
     mailer,
+    ...(opts.random ? { random: opts.random } : {}),
   };
   const app = await buildApp(deps);
   await app.ready();
@@ -148,7 +152,7 @@ export const newCallSid = () =>
 /** Send a carrier webhook signed like the mock provider. */
 export async function voice(
   app: FastifyInstance,
-  path: '/voice/inbound' | '/voice/result' | '/voice/status',
+  path: string,
   params: Record<string, string>,
   opts: { secret?: string; timestampSec?: number } = {},
 ) {
