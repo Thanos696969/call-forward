@@ -17,6 +17,7 @@ import { HttpError } from './lib/errors';
 import { registerCsrf } from './plugins/csrf';
 import { authRoutes } from './routes/auth';
 import { healthRoutes } from './routes/health';
+import { numberRoutes } from './routes/numbers';
 import { orgRoutes } from './routes/org';
 import { RouteCache } from './services/route-cache';
 import type { AppDeps } from './types';
@@ -155,19 +156,18 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   });
 
   app.setNotFoundHandler((req, reply) => {
-    reply
-      .status(404)
-      .send({
-        error: {
-          code: 'not_found',
-          message: `No route for ${req.method} ${req.url.split('?')[0]}`,
-        },
-      });
+    reply.status(404).send({
+      error: {
+        code: 'not_found',
+        message: `No route for ${req.method} ${req.url.split('?')[0]}`,
+      },
+    });
   });
 
   await app.register(healthRoutes);
   await app.register(authRoutes, { prefix: '/api/v1' });
   await app.register(orgRoutes, { prefix: '/api/v1' });
+  await app.register(numberRoutes, { prefix: '/api/v1' });
 
   return app;
 }
