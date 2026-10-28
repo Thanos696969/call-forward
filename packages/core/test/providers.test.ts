@@ -7,31 +7,62 @@ import { createProvider, resolveProviderId } from '../src/telephony/factory';
 import { dialTwiml } from '../src/telephony/twiml';
 
 describe('TwiML', () => {
-  it('builds a dial with caller ID, answerOnBridge and action', () => {
+  it('builds a sequential dial with caller ID, answerOnBridge, action and leg callbacks', () => {
     const xml = dialTwiml({
-      callId: 'c1',
-      to: '+18005550100',
-      from: '+15551230000',
-      destination: '+14155550123',
+      callerId: '+18005550100',
+      numbers: [
+        {
+          destination: '+14155550123',
+          statusCallbackUrl: 'https://api.example.com/voice/leg?a=1&b=2',
+        },
+      ],
       ringTimeoutSec: 25,
-      resultUrl: 'https://api.example.com/voice/result',
+      actionUrl: 'https://api.example.com/voice/result?attempt=1',
     });
     expect(xml).toContain(
-      '<Dial timeout="25" answerOnBridge="true" callerId="+18005550100" action="https://api.example.com/voice/result" method="POST"><Number>+14155550123</Number></Dial>',
+      '<Dial timeout="25" answerOnBridge="true" callerId="+18005550100" action="https://api.example.com/voice/result?attempt=1" method="POST">',
     );
+    expect(xml).toContain('statusCallback="https://api.example.com/voice/leg?a=1&amp;b=2"');
+    expect(xml).toContain('statusCallbackEvent="initiated ringing answered completed"');
+    expect(xml).toContain('>+14155550123</Number></Dial>');
+  });
+
+  it('rings several numbers at once for simultaneous mode', () => {
+    const xml = dialTwiml({
+      callerId: '+18005550100',
+      numbers: [{ destination: '+14155550123' }, { destination: '+14155550124' }],
+      ringTimeoutSec: 20,
+      actionUrl: 'https://x/voice/result',
+    });
+    expect(xml.match(/<Number>/g)).toHaveLength(2);
   });
 
   it('refuses non-E.164 destinations (no XML injection)', () => {
     expect(() =>
       dialTwiml({
-        callId: 'c',
-        to: '+18005550100',
-        from: '',
-        destination: '+1</Number><Play>x',
+        callerId: '+18005550100',
+        numbers: [{ destination: '+1</Number><Play>x' }],
         ringTimeoutSec: 25,
-        resultUrl: 'u',
+        actionUrl: 'u',
       }),
     ).toThrow();
+    expect(() =>
+      dialTwiml({ callerId: '+18005550100', numbers: [], ringTimeoutSec: 25, actionUrl: 'u' }),
+    ).toThrow();
+  });
+
+  it('builds the press-a-digit gather and a reject', () => {
+    const p = new MockProvider({ webhookSecret: 's' });
+    const xml = p.buildGather({
+      prompt: 'Press 7 & wait',
+      actionUrl: 'https://x/voice/ivr?a=1&b=2',
+      timeoutSec: 8,
+      noInputMessage: 'Bye',
+    });
+    expect(xml).toContain(
+      '<Gather numDigits="1" timeout="8" action="https://x/voice/ivr?a=1&amp;b=2" method="POST" actionOnEmptyResult="true"><Say>Press 7 &amp; wait</Say></Gather><Say>Bye</Say><Hangup/>',
+    );
+    expect(p.buildReject()).toContain('<Reject reason="busy"/>');
   });
 
   it('escapes spoken text', () => {

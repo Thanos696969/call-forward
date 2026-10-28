@@ -1,12 +1,13 @@
 import { US_TOLL_FREE_PREFIXES } from '../e164';
 import type {
   AvailableNumber,
-  InboundResponseInput,
+  DialInput,
+  GatherInput,
   SearchNumbersInput,
   TelephonyProvider,
 } from './provider';
 import { verifyMockSignature } from './signature';
-import { dialTwiml, emptyTwiml, sayHangupTwiml } from './twiml';
+import { dialTwiml, emptyTwiml, gatherTwiml, rejectTwiml, sayHangupTwiml } from './twiml';
 
 /**
  * Deterministic in-process carrier for local development and tests.
@@ -55,8 +56,16 @@ export class MockProvider implements TelephonyProvider {
     return verifyMockSignature(this.opts.webhookSecret, headers, rawBody, url, nowSec);
   }
 
-  buildInboundResponse(input: InboundResponseInput): string {
+  buildDial(input: DialInput): string {
     return dialTwiml(input);
+  }
+
+  buildGather(input: GatherInput): string {
+    return gatherTwiml(input);
+  }
+
+  buildReject(): string {
+    return rejectTwiml();
   }
 
   buildMessageAndHangup(message: string): string {

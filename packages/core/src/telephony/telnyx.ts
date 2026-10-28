@@ -1,6 +1,7 @@
 import type {
   AvailableNumber,
-  InboundResponseInput,
+  DialInput,
+  GatherInput,
   SearchNumbersInput,
   TelephonyProvider,
 } from './provider';
@@ -46,8 +47,14 @@ export class TelnyxProvider implements TelephonyProvider {
   verifyWebhook(_headers: Record<string, string>, _rawBody: string, _url: string): boolean {
     throw new NotImplementedError('TelnyxProvider.verifyWebhook');
   }
-  buildInboundResponse(_input: InboundResponseInput): string {
-    throw new NotImplementedError('TelnyxProvider.buildInboundResponse');
+  buildDial(_input: DialInput): string {
+    throw new NotImplementedError('TelnyxProvider.buildDial');
+  }
+  buildGather(_input: GatherInput): string {
+    throw new NotImplementedError('TelnyxProvider.buildGather');
+  }
+  buildReject(): string {
+    throw new NotImplementedError('TelnyxProvider.buildReject');
   }
   buildMessageAndHangup(_message: string): string {
     throw new NotImplementedError('TelnyxProvider.buildMessageAndHangup');
