@@ -281,6 +281,43 @@ importers:
         specifier: 5.9.3
         version: 5.9.3
 
+  packages/routing:
+    dependencies:
+      '@relay/core':
+        specifier: workspace:*
+        version: link:../core
+      '@relay/db':
+        specifier: workspace:*
+        version: link:../db
+      ioredis:
+        specifier: 5.11.1
+        version: 5.11.1
+      postgres:
+        specifier: 3.4.9
+        version: 3.4.9
+    devDependencies:
+      '@testcontainers/postgresql':
+        specifier: 12.2.1
+        version: 12.2.1
+      '@testcontainers/redis':
+        specifier: 12.2.1
+        version: 12.2.1
+      '@types/node':
+        specifier: 22.20.5
+        version: 22.20.5
+      fast-check:
+        specifier: 4.10.2
+        version: 4.10.2
+      testcontainers:
+        specifier: 12.2.1
+        version: 12.2.1
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 3.2.7
+        version: 3.2.7(@types/node@22.20.5)(jiti@1.21.7)(tsx@4.23.15)(yaml@2.9.1)
+
   packages/ui:
     dependencies:
       '@radix-ui/react-dialog':
