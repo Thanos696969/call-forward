@@ -1,0 +1,31 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "globalEnv": ["NODE_ENV"],
+  "globalPassThroughEnv": [
+    "DATABASE_URL",
+    "REDIS_URL",
+    "TELEPHONY_PROVIDER",
+    "API_URL",
+    "WEB_URL",
+    "PUBLIC_API_URL",
+    "DOCKER_HOST",
+    "TESTCONTAINERS_*",
+    "CI"
+  ],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
+    },
+    "typecheck": {
+      "dependsOn": ["^typecheck"]
+    },
+    "test": {
+      "cache": false
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    }
+  }
+}
