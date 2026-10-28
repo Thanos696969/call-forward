@@ -34,6 +34,7 @@ import { EmptyState } from '@/components/app-shell';
 import { fieldProps, zodFieldErrors } from '@/components/form-utils';
 import { RouteDiagram } from '@/components/route-diagram';
 import { NumberStatusBadge } from '@/components/status';
+import { CampaignStatusBadge } from '@/components/routing-ui';
 import { CallsTable } from '@/components/calls-table';
 
 export function NumberDetail({ id }: { id: string }) {
@@ -105,7 +106,9 @@ export function NumberDetail({ id }: { id: string }) {
       </Card>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,26rem)_1fr]">
-        {active ? (
+        {active && n.campaign && !n.campaign.simple ? (
+          <CampaignRoutingCard number={n} />
+        ) : active ? (
           <ForwardingForm number={n} canManage={canManage} />
         ) : (
           <Card>
@@ -178,6 +181,19 @@ function ForwardingForm({ number, canManage }: { number: NumberDto; canManage: b
           {canManage
             ? 'Where calls to this number ring, and for how long.'
             : 'Only owners and admins can change forwarding.'}
+          {number.campaign ? (
+            <>
+              {' '}
+              For tiers, several phones, hours or limits, use{' '}
+              <Link
+                href={`/app/campaigns/${number.campaign.id}`}
+                className="font-medium text-primary underline-offset-4 hover:underline"
+              >
+                its campaign
+              </Link>
+              .
+            </>
+          ) : null}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -237,6 +253,32 @@ function ForwardingForm({ number, canManage }: { number: NumberDto; canManage: b
             </div>
           ) : null}
         </form>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** For numbers routed by a full campaign: the quick form would be misleading, so link to it. */
+function CampaignRoutingCard({ number }: { number: NumberDto }) {
+  const c = number.campaign!;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Routing</CardTitle>
+        <CardDescription>
+          Calls to this number are routed by a campaign with several phones or numbers.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-3">
+        <div className="flex items-center gap-3">
+          <span className="font-medium">{c.name}</span>
+          <CampaignStatusBadge status={c.status} />
+        </div>
+        <div>
+          <Button asChild variant="outline">
+            <Link href={`/app/campaigns/${c.id}`}>Open campaign</Link>
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );

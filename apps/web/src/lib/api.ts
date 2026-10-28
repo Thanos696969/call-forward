@@ -64,7 +64,11 @@ export interface Envelope<T> {
 
 export async function api<T>(
   path: string,
-  init: { method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'; body?: unknown; query?: Query } = {},
+  init: {
+    method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+    body?: unknown;
+    query?: Query;
+  } = {},
 ): Promise<Envelope<T>> {
   const method = init.method ?? 'GET';
   const headers: Record<string, string> = { accept: 'application/json' };

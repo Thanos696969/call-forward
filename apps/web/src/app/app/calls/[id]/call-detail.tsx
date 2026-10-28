@@ -7,14 +7,16 @@ import { ChevronDown, ChevronLeft } from 'lucide-react';
 import type { CallDetailDto } from '@relay/core';
 import { Button, Card, CardContent, CardHeader, CardTitle, Skeleton, cn } from '@relay/ui';
 import { api, ApiError, errorMessage } from '@/lib/api';
-import { OUTCOME_LABEL, formatDateTime, formatDuration, formatPhone } from '@/lib/format';
-import { qk, useMe } from '@/lib/queries';
+import { formatDateTime, formatDuration, formatPhone } from '@/lib/format';
+import { qk, useCanManage, useMe } from '@/lib/queries';
+import { AttemptsCard, RoutingExplanation } from './routing-panels';
 import { EmptyState } from '@/components/app-shell';
 import { RouteDiagram } from '@/components/route-diagram';
 import { OutcomeBadge } from '@/components/status';
 
 export function CallDetail({ id }: { id: string }) {
   const me = useMe();
+  const canManage = useCanManage();
   const tz = me.data?.org.timezone ?? 'UTC';
   const [showRaw, setShowRaw] = useState(false);
   const call = useQuery({
@@ -47,6 +49,20 @@ export function CallDetail({ id }: { id: string }) {
     ['Ringing', formatDuration(c.ringSeconds)],
     ['Talk time', formatDuration(c.talkSeconds)],
     ['Billed', formatDuration(c.billedSeconds)],
+    [
+      'Campaign',
+      c.campaign ? (
+        <Link
+          key="cmp"
+          href={`/app/campaigns/${c.campaign.id}`}
+          className="underline-offset-4 hover:underline"
+        >
+          {c.campaign.name}
+        </Link>
+      ) : (
+        '–'
+      ),
+    ],
     ['Carrier', c.provider],
     [
       'Carrier call ID',
@@ -100,51 +116,10 @@ export function CallDetail({ id }: { id: string }) {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Attempts</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {c.legs.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                {c.outcome === 'rejected'
-                  ? 'Nothing was dialled: forwarding was not set up or was switched off.'
-                  : 'No attempts recorded.'}
-              </p>
-            ) : (
-              <ol className="relative grid gap-5 border-l-2 pl-5">
-                {c.legs.map((leg) => (
-                  <li key={leg.id} className="relative">
-                    <span
-                      aria-hidden
-                      className={cn(
-                        'absolute -left-[27px] top-1 size-3 rounded-full ring-4 ring-surface',
-                        leg.outcome === 'completed'
-                          ? 'bg-ok'
-                          : leg.outcome
-                            ? 'bg-warn'
-                            : 'bg-primary',
-                      )}
-                    />
-                    <p className="text-sm font-medium">
-                      Attempt {leg.attempt}: rang{' '}
-                      {leg.destination ? formatPhone(leg.destination) : 'destination'}
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      {OUTCOME_LABEL[leg.outcome ?? 'in_progress'] ?? leg.outcome}
-                      {leg.sipCode ? `, SIP ${leg.sipCode}` : ''}
-                    </p>
-                    <p className="tnum mt-1 text-xs text-muted-foreground">
-                      {formatDateTime(leg.startedAt, tz)}
-                      {leg.endedAt ? ` until ${formatDateTime(leg.endedAt, tz)}` : ''}
-                    </p>
-                  </li>
-                ))}
-              </ol>
-            )}
-          </CardContent>
-        </Card>
+        <AttemptsCard call={c} timezone={tz} />
       </div>
+
+      {canManage ? <RoutingExplanation callId={c.id} timezone={tz} /> : null}
 
       <section className="rounded-lg border">
         <button

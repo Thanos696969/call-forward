@@ -419,28 +419,26 @@ export const campaignRoutes: FastifyPluginAsyncZod = async (app) => {
           .values({ targetId: t.id, timezone: req.body.timezone })
           .returning({ id: schedules.id });
         if (req.body.windows.length > 0) {
-          await tx
-            .insert(scheduleWindows)
-            .values(
-              req.body.windows.map((w) =>
-                w.type === 'weekly'
-                  ? {
-                      scheduleId: s!.id,
-                      dayOfWeek: w.dayOfWeek,
-                      openTime: w.open,
-                      closeTime: w.close,
-                      kind: 'open' as const,
-                    }
-                  : {
-                      scheduleId: s!.id,
-                      dateStart: w.start,
-                      dateEnd: w.end,
-                      kind: w.kind,
-                      openTime: w.open,
-                      closeTime: w.close,
-                    },
-              ),
-            );
+          await tx.insert(scheduleWindows).values(
+            req.body.windows.map((w) =>
+              w.type === 'weekly'
+                ? {
+                    scheduleId: s!.id,
+                    dayOfWeek: w.dayOfWeek,
+                    openTime: w.open,
+                    closeTime: w.close,
+                    kind: 'open' as const,
+                  }
+                : {
+                    scheduleId: s!.id,
+                    dateStart: w.start,
+                    dateEnd: w.end,
+                    kind: w.kind,
+                    openTime: w.open,
+                    closeTime: w.close,
+                  },
+            ),
+          );
         }
         await writeAudit(tx, {
           orgId: auth.orgId,

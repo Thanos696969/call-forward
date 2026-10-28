@@ -4,7 +4,16 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { LayoutDashboard, LogOut, Menu, PhoneForwarded, ListOrdered, Settings } from 'lucide-react';
+import {
+  Activity,
+  LayoutDashboard,
+  ListOrdered,
+  LogOut,
+  Menu,
+  PhoneForwarded,
+  Settings,
+  Waypoints,
+} from 'lucide-react';
 import { Button, Dialog, DialogContent, DialogTitle, Skeleton, cn } from '@relay/ui';
 import { api, ApiError } from '@/lib/api';
 import { useMe } from '@/lib/queries';
@@ -13,7 +22,9 @@ import { ThemeToggle } from './theme-toggle';
 
 const NAV = [
   { href: '/app', label: 'Dashboard', icon: LayoutDashboard, exact: true },
+  { href: '/app/live', label: 'Live calls', icon: Activity, exact: false },
   { href: '/app/numbers', label: 'Numbers', icon: PhoneForwarded, exact: false },
+  { href: '/app/campaigns', label: 'Campaigns', icon: Waypoints, exact: false },
   { href: '/app/calls', label: 'Call log', icon: ListOrdered, exact: false },
   { href: '/app/settings', label: 'Settings', icon: Settings, exact: false },
 ] as const;
