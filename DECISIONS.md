@@ -40,6 +40,7 @@ The roadmap wins on product intent; the build prompt wins on implementation orde
 - **D30. Load smoke uses `autocannon` (npm) rather than k6**, so it runs with `pnpm load:smoke` and no extra binary. Each request has a unique `CallSid` (the real insert path); test rows are deleted afterwards.
 - **D31. E2E runs the API and web on ports 4010/3010** against the compose (or CI) Postgres/Redis, and releases its number at the end so the mock inventory is reusable across runs. In CI it serves the production build (`E2E_USE_BUILD=1`).
 - **D32. The finalise job is covered by API integration tests** (it lives in `@relay/db` as `finaliseCall`), so the worker package has no separate test suite in Phase 1.
+- **D34. MinIO comes from `cgr.dev/chainguard/minio`.** The `minio/minio` Docker Hub repository is no longer pullable; MinIO is reserved for Phase 3 recordings and unused in Phase 1.
 - **D33. The worker retries `finalise-call` when the call is still `in_progress`** (status arrived out of order), using BullMQ exponential backoff, 5 attempts.
 
 ## Deferred
