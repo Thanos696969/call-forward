@@ -44,16 +44,59 @@ The roadmap wins on product intent; the build prompt wins on implementation orde
 - **D34. MinIO comes from `cgr.dev/chainguard/minio`.** The `minio/minio` Docker Hub repository is no longer pullable; MinIO is reserved for Phase 3 recordings and unused in Phase 1.
 - **D35. E2E production mode builds the web app itself** into `.next-e2e` with `API_URL` pointing at the E2E API, because Next.js resolves rewrites at build time. `next-env.d.ts` is generated (`next typegen` runs before `tsc`), not committed.
 
+## Phase 2: routing engine
+
+Built on the `phase-2-routing-engine` branch. IDs continue from Phase 1.
+
+### Routing semantics
+
+- **D36. Caps count calls sent to a target, reserved before dialling.** Concurrency, hourly, daily and total caps are checked and incremented in one Redis Lua script before the `<Dial>` goes out, so two calls can never take the last slot. A no-answer still counts toward hourly/daily/total (the target was offered the call); concurrency is freed when the leg ends.
+- **D37. Hourly and daily caps reset on the target's schedule timezone, else the organisation's.** A daily cap for a Los Angeles desk resets at Los Angeles midnight, not UTC midnight.
+- **D38. Within a tier, sequential mode picks by `weight × free capacity`** (`weight × (cap − live) / cap`, roadmap §5.1). With idle targets the split follows the weights (property-tested within ±3 points); near their caps, busier targets get proportionally fewer calls. The roadmap's answer-rate factor is deferred (= 1).
+- **D39. "Tier order respected" means every attempt rings the lowest tier that has a target able to take the call.** A later failover attempt may go back to a lower tier if a slot there freed up meanwhile; the recorded explanation proves no skipped tier had an eligible target.
+- **D40. Failover on no-answer, busy and failed; never on caller hang-up.** A target is never rung twice on one call: the tried set is every target with a leg on the call, read from Postgres inside the call's row lock. When every target was tried, the caller hears the campaign's unavailable message and the call ends with the last attempt's outcome.
+- **D41. Simultaneous mode rings every eligible target in the lowest available tier in one `<Dial>`.** The winner is the leg the carrier names in `DialCallSid` (matched to per-leg callbacks), else the leg reported answered, else the only leg. The others are recorded as no answer.
+- **D42. Slot lifecycle:** reserved for ring timeout + 60 s; extended to 4 h when the leg's `answered` callback arrives; released on the leg's completion callback, the dial result, or the parent call ending. Releases happen after the transaction commits. Anything missed is repaired by the reaper (30 s) and reconciliation (60 s) jobs.
+- **D43. Reconciliation can only make caps stricter.** It re-adds open legs missing from Redis, removes holders whose leg is closed, and raises counters that are behind Postgres; it never lowers a counter, and never removes a holder whose leg row may still be in flight.
+- **D44. Redis outage: reservations fall back to Postgres.** `DbReserver` locks the target rows `FOR UPDATE` and counts legs, inside the same transaction that writes the legs, so caps hold (tested). The route cache reads Postgres; the caller rate limit fails open (a Redis outage must not drop legitimate calls). Each fallback is recorded as a routing event.
+- **D45. "Not configured" vs "unavailable".** A campaign with no usable target (none enabled, or all weight 0) plays "This number is not configured"; one whose targets are all busy, capped or closed plays the campaign's unavailable message (default provided) and logs `no_eligible_target`.
+- **D46. Retries replay, they never re-route.** Each handler runs under the call row lock and stores the instruction it returned (`metadata.lastResponse`); a retried inbound, IVR or dial-result webhook gets the same TwiML rebuilt from the stored attempt. `call_attempts` and a unique `(call_id, attempt, target_id)` on legs make duplicates impossible.
+
+### Schedules
+
+- **D47. Schedule rules** (`packages/core/src/routing/schedule.ts`): a closed date closes the whole day including yesterday's spill-over; open dates replace weekly hours (all day when no times); otherwise weekly hours apply; a schedule with no weekly hours is open every day except closed dates; a close time at or before the open time crosses midnight; equal times mean 24 hours. Evaluated on the wall clock with `Intl`, so DST is handled by construction (tested across the spring-forward gap).
+
+### Protection and IVR
+
+- **D48. Blocklist is organisation-wide, exact E.164, answered with `<Reject reason="busy"/>`** so a blocked caller is never answered or billed.
+- **D49. STIR/SHAKEN policies map Twilio's `StirVerstat`.** `block_failed` blocks failed verifications; `require_a_or_b` and `require_a` also block calls with no attestation.
+- **D50. Per-caller limits are per campaign, sliding minute/hour windows keyed by CallSid** (idempotent under retries). Blocked attempts count, so a caller hammering the line stays blocked until the window clears.
+- **D51. Press-a-digit gives one try.** Random digits are 1–9 (0 avoided as "operator"). No input or a wrong key ends the call as `screened_out` with `ivr_no_input` / `ivr_wrong_digit`. Prompts use `{digit}`; a prompt without it gets "Press N to continue." appended.
+
+### Product surface
+
+- **D52. Archiving a campaign detaches its numbers** (they stop forwarding until attached elsewhere) and makes it read-only except for restore. Targets are soft-deleted so past calls keep their target.
+- **D53. The Phase 1 quick forwarding form still works for "simple" campaigns** (one number, at most one target). Otherwise `PATCH /numbers/:id` returns 409 `campaign_managed` and the number page links to the campaign.
+- **D54. Live calls poll every 3 s** (the roadmap allows SSE or polling); timers tick locally against the server clock.
+- **D55. Routing debug is owner/admin only:** `GET /calls/:id/routing` returns the decisions recorded at call time (protection verdict, IVR, every tier walked with each target's verdict and live counters); `POST /campaigns/:id/explain` is a read-only dry run for any time, with each target's pick probability.
+- **D56. Per-leg callbacks use the `<Number statusCallback>` URL with `attempt` and `target` in the query string.** The carrier signs the full URL, so the query cannot be forged; the leg's parent call comes from `ParentCallSid`.
+- **D57. The load test is a custom open-loop generator** (`pnpm load:smoke`) instead of autocannon: each call is a multi-step webhook flow with hold times, so caps bind and failover happens under load. Results: `docs/load-test-phase2.md`.
+- **D58. Phase 2 is delivered on a branch** (`phase-2-routing-engine`) for review rather than pushed to `main`.
+
 ## Deferred
 
 - Deferred: **Team invites, email verification and TOTP MFA** (roadmap §7.2). Phase 1 has single-owner organisations plus seeded/test members.
 - Deferred: **Organisation delete (owner-only)** endpoint and UI.
 - Deferred: **Telnyx adapter** implementation (see D1) and **multi-provider failover** (Phase 5).
 - Deferred: **Local numbers + E911** (see D2), **toll-free verification (TFV)**, **KYC/KYB** before purchase.
-- Deferred: **Campaigns UI, weights, tiers, caps, schedules, failover, IVR, call protection** (Phase 2). The router already walks tiers (`selectTarget`).
 - Deferred: **Recordings, wallet, Stripe, metering, number monthly fees, buy/sell prices** (Phase 3). Money columns and helpers exist; prices are stored as 0.
 - Deferred: **SSRF DNS resolution.** `assertSafeWebhookUrl` checks syntax and IP literals; Phase 4 must also resolve hostnames and re-check at connect time.
-- Deferred: **Twilio per-number status-callback events.** Twilio sends the number-level `StatusCallback` on completion only by default; Phase 2 should request `initiated ringing answered completed` on the `<Number>` for per-leg timing.
 - Deferred: **Negative route caching.** Unknown numbers hit Postgres each time; fine at Phase 1 volume.
 - Deferred: **Content-Security-Policy for the web app**, OpenTelemetry tracing, Sentry, `pnpm audit` and OWASP ZAP in CI (roadmap §7.2, Phase 6).
-- Deferred: **SSE live-calls view** (see D27).
+- Deferred: **SSE live-calls view** (see D27, D54).
+- Deferred: **Answer-rate weighting** (roadmap's EWMA "AI routing", Phase 5); the factor is 1 today (D38).
+- Deferred: **Hold queue, overflow number and voicemail** when every target is busy (roadmap §5.1 step 10); callers hear the unavailable message instead.
+- Deferred: **Duplicate/repeat-caller policy** and **block VoIP / international callers** (roadmap §5.1); the `is_repeat` columns exist.
+- Deferred: **Redis Cluster.** The reservation script touches keys of several targets, so a cluster deployment needs hash tags per campaign. Single-node or sentinel Redis is assumed.
+- Deferred: **Per-leg SIP codes** from carrier callbacks (`call_legs.sip_code` stays null).
+- Deferred: **SIP and browser-agent targets** (Phase 5); the schema allows them, the router skips them as `unsupported_type`.
