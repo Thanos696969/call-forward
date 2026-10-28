@@ -17,8 +17,11 @@ import { HttpError } from './lib/errors';
 import { registerCsrf } from './plugins/csrf';
 import { authRoutes } from './routes/auth';
 import { healthRoutes } from './routes/health';
+import { callRoutes } from './routes/calls';
+import { forwardingRoutes } from './routes/forwarding';
 import { numberRoutes } from './routes/numbers';
 import { orgRoutes } from './routes/org';
+import { voiceRoutes } from './routes/voice';
 import { RouteCache } from './services/route-cache';
 import type { AppDeps } from './types';
 
@@ -165,9 +168,12 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   });
 
   await app.register(healthRoutes);
+  await app.register(voiceRoutes);
   await app.register(authRoutes, { prefix: '/api/v1' });
   await app.register(orgRoutes, { prefix: '/api/v1' });
   await app.register(numberRoutes, { prefix: '/api/v1' });
+  await app.register(forwardingRoutes, { prefix: '/api/v1' });
+  await app.register(callRoutes, { prefix: '/api/v1' });
 
   return app;
 }

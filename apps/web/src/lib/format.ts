@@ -63,3 +63,36 @@ export function outcomeTone(outcome: string): Tone {
       return 'red';
   }
 }
+
+/** Offset (ms) of `timeZone` from UTC at instant `at`. */
+function zoneOffsetMs(at: number, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).formatToParts(new Date(at));
+  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? 0);
+  const asUtc = Date.UTC(
+    get('year'),
+    get('month') - 1,
+    get('day'),
+    get('hour'),
+    get('minute'),
+    get('second'),
+  );
+  return asUtc - at;
+}
+
+/** Local midnight of a YYYY-MM-DD date in `timeZone`, as an ISO instant. */
+export function zonedMidnightIso(date: string, timeZone: string, addDays = 0): string {
+  const [y, m, d] = date.split('-').map(Number);
+  const guess = Date.UTC(y ?? 1970, (m ?? 1) - 1, (d ?? 1) + addDays);
+  const first = guess - zoneOffsetMs(guess, timeZone);
+  // Re-check once in case the guess and the answer straddle a DST change.
+  return new Date(guess - zoneOffsetMs(first, timeZone)).toISOString();
+}
