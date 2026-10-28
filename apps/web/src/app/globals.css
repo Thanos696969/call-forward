@@ -1,0 +1,80 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 195 13% 94%;
+    --surface: 0 0% 100%;
+    --foreground: 192 25% 12%;
+    --muted: 197 14% 90%;
+    --muted-foreground: 194 11% 38%;
+    --border: 196 14% 85%;
+    --input: 196 14% 79%;
+    --primary: 184 74% 21%;
+    --primary-foreground: 0 0% 100%;
+    --signal: 43 100% 44%;
+    --signal-foreground: 44 100% 6%;
+    --ok: 146 63% 31%;
+    --warn: 35 81% 36%;
+    --destructive: 3 63% 46%;
+    --destructive-foreground: 0 0% 100%;
+    --ring: 184 74% 21%;
+    color-scheme: light;
+  }
+
+  .dark {
+    --background: 190 35% 7%;
+    --surface: 190 35% 10%;
+    --foreground: 187 22% 92%;
+    --muted: 191 30% 15%;
+    --muted-foreground: 191 14% 62%;
+    --border: 192 27% 19%;
+    --input: 192 25% 24%;
+    --primary: 176 45% 50%;
+    --primary-foreground: 178 78% 7%;
+    --signal: 42 88% 57%;
+    --signal-foreground: 44 100% 6%;
+    --ok: 147 52% 52%;
+    --warn: 37 78% 59%;
+    --destructive: 5 82% 65%;
+    --destructive-foreground: 4 82% 6%;
+    --ring: 176 45% 50%;
+    color-scheme: dark;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: 'ss01';
+  }
+
+  /* Phone numbers and durations line up in tables and headers. */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+/* The patch cord: the one decorative motion in the product, used in the route diagram. */
+@keyframes cord-flow {
+  to {
+    stroke-dashoffset: -24;
+  }
+}
+.cord-live {
+  stroke-dasharray: 6 6;
+  animation: cord-flow 1.2s linear infinite;
+}
