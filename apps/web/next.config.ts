@@ -3,6 +3,8 @@ import type { NextConfig } from 'next';
 const apiUrl = (process.env.API_URL ?? 'http://localhost:4000').replace(/\/$/, '');
 
 const nextConfig: NextConfig = {
+  // Rewrites are resolved at build time, so E2E builds into its own directory with its own API_URL.
+  distDir: process.env.NEXT_DIST_DIR || '.next',
   reactStrictMode: true,
   poweredByHeader: false,
   transpilePackages: ['@relay/core', '@relay/ui'],

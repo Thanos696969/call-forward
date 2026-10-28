@@ -1,6 +1,7 @@
 node_modules
 dist
 .next
+.next-e2e
 .turbo
 coverage
 *.log
@@ -12,3 +13,4 @@ test-results
 apps/web/e2e/.auth
 *.tsbuildinfo
 .DS_Store
+next-env.d.ts

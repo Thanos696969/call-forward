@@ -48,13 +48,15 @@ export default defineConfig({
       },
     },
     {
+      // Production mode builds with API_URL pointing at the E2E API (rewrites are baked in at
+      // build time) into a separate dist dir, so it never clobbers a developer's .next.
       command: useBuild
-        ? `pnpm exec next start --port ${WEB_PORT}`
+        ? `pnpm exec next build && pnpm exec next start --port ${WEB_PORT}`
         : `pnpm exec next dev --port ${WEB_PORT}`,
       url: E2E.webUrl,
       reuseExistingServer: false,
-      timeout: 120_000,
-      env: { API_URL: E2E.apiUrl },
+      timeout: useBuild ? 300_000 : 120_000,
+      env: { API_URL: E2E.apiUrl, NEXT_DIST_DIR: '.next-e2e' },
     },
   ],
 });

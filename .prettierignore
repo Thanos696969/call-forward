@@ -6,3 +6,5 @@ pnpm-lock.yaml
 packages/db/migrations
 playwright-report
 test-results
+.next-e2e
+apps/web/tsconfig.json
