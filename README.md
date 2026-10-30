@@ -12,6 +12,14 @@ screen and call protection. Every call lands in a call log with a per-attempt le
 See [ROADMAP.md](ROADMAP.md) for the plan and [DECISIONS.md](DECISIONS.md) for every assumption
 (D1–D58) and deferred item.
 
+## Deploy on Vercel
+
+The whole app deploys as **one Vercel project**: import this repo, set **Root Directory** to
+`apps/web`, add **Neon** (Postgres) and **Upstash** (Redis) from Vercel Storage, set the Twilio
+keys and a `CRON_SECRET`, deploy. The API runs inside the Next.js app and there is no worker to
+host. Full walkthrough, demo mode without Twilio, custom domains and limits:
+**[docs/DEPLOY-VERCEL.md](docs/DEPLOY-VERCEL.md)**.
+
 ## Quick start
 
 Requirements: Node 22.12+, pnpm 10, Docker.
@@ -100,6 +108,10 @@ The simulator follows the router like a carrier would: HMAC-signed `/voice/inbou
   60 s and invalidated on every campaign edit; one Lua script atomically prunes expired holders,
   checks the concurrent, hourly, daily and total caps and reserves; Postgres row locks are the
   fallback when Redis is down. See [Routing state](#routing-state).
+- **Two layouts, same code**: standalone (the API on its own port plus the BullMQ worker; the
+  web app proxies API paths to `API_URL`) or Vercel (the API runs inside the Next.js route
+  handlers, jobs run inline and maintenance rides on traffic; see
+  [docs/DEPLOY-VERCEL.md](docs/DEPLOY-VERCEL.md)).
 - **Control plane**: `/api/v1` REST with `{ data, meta }` / `{ error }` envelopes, cursor pagination,
   Zod validation (unknown fields rejected), OpenAPI generated from the schemas.
 - **Data plane**: the worker's `finalise-call` job sets `billed_seconds` (Phase 1 placeholder =
@@ -174,10 +186,12 @@ Every variable is documented in [.env.example](.env.example). The ones you are m
 | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` | —                                             | Twilio credentials                                          |
 | `MOCK_WEBHOOK_SECRET`                     | `dev-mock-webhook-secret` (dev only)          | Signs simulated webhooks                                    |
 | `WEB_ORIGIN`, `WEB_URL`                   | `http://localhost:3000`                       | CORS origin and links in emails                             |
-| `API_URL`                                 | `http://localhost:4000`                       | Where the web app proxies `/api/v1`                         |
+| `API_URL`                                 | `http://localhost:4000`                       | Where the web app proxies API paths; unset on Vercel        |
 | `SMTP_*`, `MAIL_FROM`                     | Mailpit on `localhost:1025`                   | Password reset emails                                       |
 
-In production the API refuses to start with the mock carrier or without Secure cookies.
+In production the API refuses to start with the mock carrier (unless `ALLOW_MOCK_PROVIDER=true`
+with a strong secret, for demos) or without Secure cookies. Vercel-specific variables
+(`CRON_SECRET`, `JOBS_MODE`, `DB_POOL_MAX`, `RUN_MIGRATIONS`) are described in `.env.example`.
 
 ## Using real Twilio calls
 
@@ -214,6 +228,7 @@ Twilio, so the shared `parseVoiceParams` and TwiML builders apply.
 pnpm lint && pnpm typecheck
 pnpm test          # unit + property tests (core), routing and API integration tests (Testcontainers)
 pnpm e2e           # Playwright: forwarding journey, campaign failover, live calls, call detail
+E2E_EMBEDDED=1 pnpm e2e   # the same tests in the Vercel layout (API inside Next.js, no worker)
 pnpm build
 pnpm load:smoke    # with the API running: 100 calls/s through the full routing path
 ```

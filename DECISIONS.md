@@ -81,7 +81,21 @@ Built on the `phase-2-routing-engine` branch. IDs continue from Phase 1.
 - **D55. Routing debug is owner/admin only:** `GET /calls/:id/routing` returns the decisions recorded at call time (protection verdict, IVR, every tier walked with each target's verdict and live counters); `POST /campaigns/:id/explain` is a read-only dry run for any time, with each target's pick probability.
 - **D56. Per-leg callbacks use the `<Number statusCallback>` URL with `attempt` and `target` in the query string.** The carrier signs the full URL, so the query cannot be forged; the leg's parent call comes from `ParentCallSid`.
 - **D57. The load test is a custom open-loop generator** (`pnpm load:smoke`) instead of autocannon: each call is a multi-step webhook flow with hold times, so caps bind and failover happens under load. Results: `docs/load-test-phase2.md`.
-- **D58. Phase 2 is delivered on a branch** (`phase-2-routing-engine`) for review rather than pushed to `main`.
+- **D58. Phase 2 is delivered on a branch** (`phase-2-routing-engine`) for review rather than pushed to `main`. (Merged as PR #1.)
+
+## Hosting on Vercel
+
+The owner chose Vercel as the only host. Vercel runs functions, not long-lived processes, so the
+always-on API and the BullMQ worker are adapted rather than moved. The standalone layout
+(apps/api + apps/worker) still works unchanged.
+
+- **D59. The API runs inside the Next.js app, one Vercel project.** Route handlers for `/api/v1/*`, `/voice/*`, `/healthz`, `/readyz` and `/api/cron/*` hand each request to the same Fastify app via `inject` (`apps/api/src/embedded.ts`), built once per instance and reused. One domain means first-party cookies, no cross-project rewrite (which would lose the caller's IP for rate limits) and one URL for Twilio. Locally and in the standalone layout the same handlers proxy to `API_URL`, which replaces the old Next.js rewrite.
+- **D60. "Warm Fastify" on Vercel means Fluid compute instance reuse, not a dedicated process.** The first request to a new instance pays a 1–2 s boot; Twilio waits 15 s, so no call is lost, but those requests miss the 300 ms target. Measured locally, one instance holds p95 54 ms at 75 calls/s and saturates above that (Next.js adds about 1.3 ms of CPU per request on top of the API's own work); Vercel scales out with more instances. 100 calls/s on one 2-vCPU box does not pass in this layout; the standalone layout does (p95 42 ms).
+- **D61. Jobs run inline on Vercel** (`JOBS_MODE=inline`, the default when `VERCEL` is set). Call finalisation is deferred with `waitUntil` after the webhook response. A crash or timeout in between is repaired by a sweep for ended calls with no `billed_seconds` (new partial index, migration 0004).
+- **D62. Routing maintenance rides on traffic.** After any response, an instance that has not tried in the last 30 s sets a Redis lock (`maint:run`, 30 s, NX); the holder runs the reaper, and reconciliation plus the finalise sweep when `maint:reconcile` (60 s, NX) is also free. The lock serialises them across instances as the worker's single-concurrency queue did. A daily Vercel Cron (`/api/cron/maintenance`, Bearer `CRON_SECRET`, 404 without a secret) is the backstop; Hobby allows only daily crons, and reservations expire on their own regardless.
+- **D63. Serverless data stores.** Neon's pooled `DATABASE_URL` (PgBouncer, transaction mode) gets unprepared statements, detected from the URL; migrations use `DATABASE_URL_UNPOOLED` because they take an advisory lock. Nothing else uses session state. Pools are 5 connections per instance on Vercel. `KV_URL` is accepted as the Redis URL. Migrations run on production builds only (`apps/web/scripts/vercel-build.mjs`), so preview deploys cannot change the production schema unless `RUN_MIGRATIONS=true`.
+- **D64. URLs default to the project's production domain on Vercel** (`VERCEL_PROJECT_PRODUCTION_URL`), so a fresh deploy needs no URL settings. `PUBLIC_API_URL` must be set before numbers are bought when a custom domain is used, because Twilio signs the URL it calls.
+- **D65. Demo mode:** `ALLOW_MOCK_PROVIDER=true` permits the mock carrier in production, but only with a `MOCK_WEBHOOK_SECRET` of 24+ characters that is not the development default. It lets the owner deploy and click through before Twilio is set up.
 
 ## Deferred
 

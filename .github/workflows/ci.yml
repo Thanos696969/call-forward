@@ -51,6 +51,10 @@ jobs:
       - run: pnpm e2e
         env:
           E2E_USE_BUILD: '1'
+      # The Vercel layout: API embedded in Next.js, no API process, no worker.
+      - run: pnpm e2e
+        env:
+          E2E_EMBEDDED: '1'
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

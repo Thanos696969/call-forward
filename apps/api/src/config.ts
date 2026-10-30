@@ -13,10 +13,10 @@ const envSchema = z.object({
   API_HOST: z.string().default('0.0.0.0'),
   API_PORT: z.coerce.number().int().min(1).max(65535).default(4000),
   DATABASE_URL: z.string().default('postgres://relay:relay@localhost:5432/relay'),
-  REDIS_URL: z.string().default('redis://localhost:6379'),
-  PUBLIC_API_URL: z.url().default('http://localhost:4000'),
-  WEB_ORIGIN: z.url().default('http://localhost:3000'),
-  WEB_URL: z.url().default('http://localhost:3000'),
+  REDIS_URL: z.string().optional(),
+  PUBLIC_API_URL: z.url().optional(),
+  WEB_ORIGIN: z.url().optional(),
+  WEB_URL: z.url().optional(),
   TRUST_PROXY: z.string().default('127.0.0.1,::1'),
   RATE_LIMIT_ENABLED: z.string().optional(),
   SESSION_COOKIE_SECURE: z.string().optional(),
@@ -30,9 +30,18 @@ const envSchema = z.object({
   SMTP_USER: z.string().optional(),
   SMTP_PASSWORD: z.string().optional(),
   MAIL_FROM: z.string().default('Relay <no-reply@relay.local>'),
+  // ── Serverless (Vercel) ──
+  JOBS_MODE: z.enum(['queue', 'inline']).optional(),
+  DB_POOL_MAX: z.coerce.number().int().min(1).max(100).optional(),
+  CRON_SECRET: z.string().optional(),
+  ALLOW_MOCK_PROVIDER: z.string().optional(),
+  KV_URL: z.string().optional(),
+  VERCEL: z.string().optional(),
+  VERCEL_PROJECT_PRODUCTION_URL: z.string().optional(),
 });
 
 export const DEV_MOCK_SECRET = 'dev-mock-webhook-secret';
+const MIN_MOCK_SECRET_LENGTH = 24;
 
 export interface Config {
   env: 'development' | 'test' | 'production';
@@ -48,6 +57,13 @@ export interface Config {
   trustProxy: string[];
   rateLimitEnabled: boolean;
   sessionCookieSecure: boolean;
+  /** Running inside a serverless function (Vercel): no long-lived worker process. */
+  serverless: boolean;
+  /** `queue`: BullMQ + apps/worker. `inline`: jobs and maintenance run inside the API. */
+  jobsMode: 'queue' | 'inline';
+  dbPoolMax: number;
+  /** Bearer token Vercel Cron sends to /api/cron/maintenance; the route is off without it. */
+  cronSecret?: string;
   smtp: { host: string; port: number; user?: string; password?: string; from: string };
   telephony: {
     TELEPHONY_PROVIDER?: string;
@@ -61,6 +77,14 @@ export interface Config {
 export function loadConfig(source: NodeJS.ProcessEnv = process.env): Config {
   const e = envSchema.parse(source);
   const isProd = e.NODE_ENV === 'production';
+  const serverless = Boolean(e.VERCEL);
+  // On Vercel every URL defaults to the project's production domain (web and API share it).
+  const vercelUrl = e.VERCEL_PROJECT_PRODUCTION_URL
+    ? `https://${e.VERCEL_PROJECT_PRODUCTION_URL.replace(/^https?:\/\//, '')}`
+    : undefined;
+  const publicApiUrl = e.PUBLIC_API_URL ?? vercelUrl ?? 'http://localhost:4000';
+  const webUrl = e.WEB_URL ?? vercelUrl ?? 'http://localhost:3000';
+  const webOrigin = e.WEB_ORIGIN ?? new URL(webUrl).origin;
   const rateLimitEnabled = bool(true).parse(e.RATE_LIMIT_ENABLED);
   const sessionCookieSecure = bool(isProd).parse(e.SESSION_COOKIE_SECURE);
   const mockSecret = e.MOCK_WEBHOOK_SECRET || (isProd ? '' : DEV_MOCK_SECRET);
@@ -73,9 +97,19 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): Config {
     TWILIO_API_BASE: e.TWILIO_API_BASE,
   };
   const providerId = resolveProviderId(telephony);
+  const allowMock = bool(false).parse(e.ALLOW_MOCK_PROVIDER);
   if (isProd) {
-    if (providerId === 'mock')
-      throw new Error('TELEPHONY_PROVIDER=mock is not allowed in production');
+    if (providerId === 'mock' && !allowMock)
+      throw new Error(
+        'TELEPHONY_PROVIDER=mock is not allowed in production (set Twilio credentials, or ALLOW_MOCK_PROVIDER=true for a demo)',
+      );
+    if (
+      providerId === 'mock' &&
+      (mockSecret.length < MIN_MOCK_SECRET_LENGTH || mockSecret === DEV_MOCK_SECRET)
+    )
+      throw new Error(
+        `ALLOW_MOCK_PROVIDER needs MOCK_WEBHOOK_SECRET set to a random value of at least ${MIN_MOCK_SECRET_LENGTH} characters`,
+      );
     if (!sessionCookieSecure) throw new Error('SESSION_COOKIE_SECURE must be true in production');
   }
 
@@ -86,15 +120,20 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): Config {
     host: e.API_HOST,
     port: e.API_PORT,
     databaseUrl: e.DATABASE_URL,
-    redisUrl: e.REDIS_URL,
-    publicApiUrl: e.PUBLIC_API_URL.replace(/\/$/, ''),
-    webOrigin: e.WEB_ORIGIN.replace(/\/$/, ''),
-    webUrl: e.WEB_URL.replace(/\/$/, ''),
+    // Vercel's Upstash integration exposes the TCP URL as KV_URL as well as REDIS_URL.
+    redisUrl: e.REDIS_URL || e.KV_URL || 'redis://localhost:6379',
+    publicApiUrl: publicApiUrl.replace(/\/$/, ''),
+    webOrigin: webOrigin.replace(/\/$/, ''),
+    webUrl: webUrl.replace(/\/$/, ''),
     trustProxy: e.TRUST_PROXY.split(',')
       .map((s) => s.trim())
       .filter(Boolean),
     rateLimitEnabled,
     sessionCookieSecure,
+    serverless,
+    jobsMode: e.JOBS_MODE ?? (serverless ? 'inline' : 'queue'),
+    dbPoolMax: e.DB_POOL_MAX ?? (serverless ? 5 : 20),
+    cronSecret: e.CRON_SECRET || undefined,
     smtp: {
       host: e.SMTP_HOST,
       port: e.SMTP_PORT,

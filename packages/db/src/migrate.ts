@@ -2,13 +2,16 @@ import { readdir, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import type { Sql } from 'postgres';
 
-export const MIGRATIONS_DIR = fileURLToPath(new URL('../migrations', import.meta.url));
+// Not a literal in `new URL(...)`: bundlers would otherwise try to bundle the folder as an
+// asset when the API is embedded in the Next.js app (migrations never run from there).
+const MIGRATIONS_REL = '../migrations';
+export const migrationsDir = (): string => fileURLToPath(new URL(MIGRATIONS_REL, import.meta.url));
 
 /**
  * Forward-only SQL migrations. Files run in lexical order, each in its own
  * transaction, guarded by an advisory lock so concurrent deploys don't race.
  */
-export async function runMigrations(sql: Sql, dir: string = MIGRATIONS_DIR): Promise<string[]> {
+export async function runMigrations(sql: Sql, dir: string = migrationsDir()): Promise<string[]> {
   const files = (await readdir(dir)).filter((f) => f.endsWith('.sql')).sort();
   const applied: string[] = [];
   await sql.begin(async (tx) => {

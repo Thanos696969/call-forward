@@ -2,6 +2,7 @@
  * Routing engine load test.
  *
  *   pnpm load:smoke [--rate 100] [--duration 30] [--api http://localhost:4000] [--keep]
+ *   pnpm load:smoke --api http://localhost:3100,http://localhost:3101   (round-robin instances)
  *
  * Open-loop: starts `rate` new calls per second regardless of how fast earlier
  * ones finish (the way carriers deliver traffic). Each call walks the real
@@ -35,11 +36,15 @@ const { values } = parseArgs({
   },
 });
 
-const target = (values.api ?? `http://localhost:${process.env.API_PORT ?? '4000'}`).replace(
-  /\/$/,
-  '',
-);
-const publicUrl = (process.env.PUBLIC_API_URL ?? target).replace(/\/$/, '');
+// Several comma-separated instances are used round-robin per request, the way a serverless
+// platform spreads webhooks; any instance must be able to handle any step of any call.
+const apiUrls = (values.api ?? `http://localhost:${process.env.API_PORT ?? '4000'}`)
+  .split(',')
+  .map((u) => u.trim().replace(/\/$/, ''))
+  .filter(Boolean);
+const publicUrl = (process.env.PUBLIC_API_URL ?? apiUrls[0]!).replace(/\/$/, '');
+let nextApi = 0;
+const pickTarget = () => apiUrls[nextApi++ % apiUrls.length]!;
 const secret = process.env.MOCK_WEBHOOK_SECRET ?? 'dev-mock-webhook-secret';
 const rate = Number(values.rate);
 const duration = Number(values.duration);
@@ -90,7 +95,7 @@ async function post(path: string, params: Record<string, string>, kind: Endpoint
     ...signMockWebhook(secret, `${publicUrl}${path}`, body),
   };
   const t0 = performance.now();
-  const res = await fetch(`${target}${path}`, { method: 'POST', headers, body });
+  const res = await fetch(`${pickTarget()}${path}`, { method: 'POST', headers, body });
   const text = await res.text();
   latency[kind].push(performance.now() - t0);
   if (!res.ok) failures++;
@@ -144,7 +149,7 @@ const sampler = setInterval(async () => {
 }, 50);
 
 console.log(
-  `Load: ${rate} calls/s for ${duration} s against ${target} (number ${e164}, 5 targets in 3 tiers)`,
+  `Load: ${rate} calls/s for ${duration} s against ${apiUrls.join(', ')} (number ${e164}, 5 targets in 3 tiers)`,
 );
 const inflight: Promise<void>[] = [];
 const started = performance.now();
