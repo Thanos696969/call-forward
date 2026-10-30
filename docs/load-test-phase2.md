@@ -59,3 +59,28 @@ verified separately (10,000 calls within ±3 points, `packages/routing/test`).
   event) plus one Redis script; each dial result is one transaction plus one script for failover.
 - Reproduce: `pnpm --filter @relay/api build`, start the API with `TELEPHONY_PROVIDER=mock`, then
   `pnpm load:smoke --api http://localhost:4000`. Add `--json report.json` for machine-readable output.
+
+## Vercel layout (API embedded in Next.js)
+
+The same test against `next start` with the API embedded, inline jobs and no worker (the code
+path Vercel runs), on the same 2-vCPU machine. Postgres pool 5 per instance (the Vercel default)
+unless noted.
+
+| Offered load         | Webhooks |   p50   |   p95    |   p99    | Failures | Cap violations | Double rings |
+| -------------------- | -------: | :-----: | :------: | :------: | -------: | -------------: | -----------: |
+| 50 calls/s           |    3,981 | 10.0 ms | 27.0 ms  | 54.1 ms  |        0 |              0 |            0 |
+| 75 calls/s           |    5,609 | 15.2 ms | 53.7 ms  | 125.4 ms |        0 |              0 |            0 |
+| 100 calls/s          |    6,161 | 708 ms  | 1,102 ms | 1,162 ms |        0 |              0 |            0 |
+| 100 calls/s, pool 20 |    6,599 | 177 ms  |  814 ms  |  919 ms  |        0 |              0 |            0 |
+
+- One Next.js process saturates between 75 and 100 calls/s here: Next.js adds about 1.3 ms of CPU
+  per request (a static page tops out near 800 requests/s), and at 100 calls/s the single Node
+  thread shares 2 vCPUs with Postgres, Redis and the generator. Running two instances on the
+  same 2 vCPUs did not help (p95 481 ms) because there was no spare CPU to give them.
+- On Vercel each instance has its own CPU and the platform adds instances under load, so the
+  per-instance figure (p95 54 ms at 75 calls/s) is the one that carries over; verify on the
+  deployment with the command in `docs/DEPLOY-VERCEL.md`.
+- Correctness held at every rate, including when webhooks for one call were spread
+  round-robin across two instances: every cap reached and never exceeded, no double rings.
+- Reproduce: `E2E`-style build with `EMBED_API=true JOBS_MODE=inline` (or `VERCEL=1`), then
+  `pnpm load:smoke --api http://localhost:3000[,http://localhost:3001]`.

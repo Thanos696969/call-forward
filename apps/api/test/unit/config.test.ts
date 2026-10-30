@@ -56,3 +56,63 @@ describe('cursor', () => {
     expect(() => decodeCursor('not-base64-json')).toThrow();
   });
 });
+
+describe('serverless config', () => {
+  const twilio = { TWILIO_ACCOUNT_SID: 'AC1', TWILIO_AUTH_TOKEN: 't' };
+
+  it('derives every URL and inline jobs from Vercel defaults', () => {
+    const c = loadConfig({
+      NODE_ENV: 'production',
+      VERCEL: '1',
+      VERCEL_PROJECT_PRODUCTION_URL: 'relay-demo.vercel.app',
+      KV_URL: 'rediss://default:pw@us1.upstash.io:6379',
+      ...twilio,
+    });
+    expect(c).toMatchObject({
+      serverless: true,
+      jobsMode: 'inline',
+      dbPoolMax: 5,
+      publicApiUrl: 'https://relay-demo.vercel.app',
+      webUrl: 'https://relay-demo.vercel.app',
+      webOrigin: 'https://relay-demo.vercel.app',
+      redisUrl: 'rediss://default:pw@us1.upstash.io:6379',
+    });
+  });
+
+  it('lets explicit URLs win over Vercel defaults', () => {
+    const c = loadConfig({
+      VERCEL: '1',
+      VERCEL_PROJECT_PRODUCTION_URL: 'relay-demo.vercel.app',
+      PUBLIC_API_URL: 'https://calls.example.com/',
+    });
+    expect(c.publicApiUrl).toBe('https://calls.example.com');
+    expect(c.webUrl).toBe('https://relay-demo.vercel.app');
+  });
+
+  it('keeps the standalone defaults off Vercel', () => {
+    expect(loadConfig({})).toMatchObject({ serverless: false, jobsMode: 'queue', dbPoolMax: 20 });
+  });
+
+  it('allows the mock carrier in production only as an explicit demo with a strong secret', () => {
+    const demo = {
+      NODE_ENV: 'production',
+      TELEPHONY_PROVIDER: 'mock',
+      ALLOW_MOCK_PROVIDER: 'true',
+    };
+    expect(() => loadConfig(demo)).toThrow(/MOCK_WEBHOOK_SECRET/);
+    expect(() => loadConfig({ ...demo, MOCK_WEBHOOK_SECRET: 'short' })).toThrow(/24/);
+    const ok = loadConfig({ ...demo, MOCK_WEBHOOK_SECRET: 'x'.repeat(32) });
+    expect(ok.telephony.MOCK_WEBHOOK_SECRET).toBe('x'.repeat(32));
+  });
+});
+
+describe('pooled Postgres URLs', () => {
+  it('sends unprepared statements through transaction poolers only', async () => {
+    const { isPooledUrl } = await import('@relay/db');
+    expect(isPooledUrl('postgres://u:p@ep-cool-123-pooler.us-east-1.aws.neon.tech/db')).toBe(true);
+    expect(isPooledUrl('postgres://u:p@db.example.com:6543/postgres')).toBe(true);
+    expect(isPooledUrl('postgres://u:p@host/db?pgbouncer=true')).toBe(true);
+    expect(isPooledUrl('postgres://u:p@ep-cool-123.us-east-1.aws.neon.tech/db')).toBe(false);
+    expect(isPooledUrl('postgres://relay:relay@localhost:5432/relay')).toBe(false);
+  });
+});

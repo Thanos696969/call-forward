@@ -25,6 +25,8 @@ import { voiceRoutes } from './routes/voice';
 import { RedisReserver, RouteCache } from '@relay/routing';
 import { blocklistRoutes } from './routes/blocklist';
 import { campaignRoutes } from './routes/campaigns';
+import { cronRoutes } from './routes/cron';
+import { MaintenanceTicker } from './services/maintenance';
 import { voiceUrls } from './config';
 import { VoiceService } from './services/voice';
 import type { AppDeps } from './types';
@@ -185,7 +187,19 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     });
   });
 
+  if (deps.config.jobsMode === 'inline') {
+    // No worker process: routing maintenance rides on ordinary traffic, after the response.
+    const ticker = new MaintenanceTicker({ sql: deps.sql, db: deps.db, redis: deps.redis });
+    const defer = deps.defer ?? ((task: Promise<unknown>) => void task.catch(() => {}));
+    app.addHook('onResponse', async () => {
+      const run = ticker.maybeRun();
+      if (run)
+        defer(run.catch((err: unknown) => app.log.error({ err }, 'routing maintenance failed')));
+    });
+  }
+
   await app.register(healthRoutes);
+  await app.register(cronRoutes);
   await app.register(voiceRoutes);
   await app.register(authRoutes, { prefix: '/api/v1' });
   await app.register(orgRoutes, { prefix: '/api/v1' });

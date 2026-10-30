@@ -3,11 +3,14 @@ import { createDb, runMigrations } from '../src/index';
 
 loadEnvFile();
 
+/** Migrations take an advisory lock, so they need a direct connection, not a pooler. */
+const url = process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL || undefined;
+
 /** `docker compose up -d` returns before Postgres accepts connections; wait up to 60 s. */
 async function waitForDatabase(): Promise<void> {
   const deadline = Date.now() + 60_000;
   for (;;) {
-    const probe = createDb(undefined, { max: 1 });
+    const probe = createDb(url, { max: 1 });
     try {
       await probe.sql`select 1`;
       return;
@@ -21,7 +24,7 @@ async function waitForDatabase(): Promise<void> {
   }
 }
 
-const { sql, close } = createDb(undefined, { max: 1 });
+const { sql, close } = createDb(url, { max: 1 });
 try {
   await waitForDatabase();
   const applied = await runMigrations(sql);

@@ -4,6 +4,7 @@ import type { Role } from '@relay/core';
 import type { TelephonyProvider } from '@relay/core/server';
 import type { Database } from '@relay/db';
 import type { Config } from './config';
+import type { Defer } from './lib/inline-jobs';
 import type { CallJobs } from './lib/jobs';
 import type { Mailer } from './lib/mailer';
 import type { RedisReserver, RouteCache } from '@relay/routing';
@@ -19,6 +20,8 @@ export interface AppDeps {
   mailer: Mailer;
   /** Injected by tests for deterministic weighted routing. */
   random?: () => number;
+  /** Runs work after the response (Vercel `waitUntil`); defaults to a detached promise. */
+  defer?: Defer;
 }
 
 export interface AuthContext {

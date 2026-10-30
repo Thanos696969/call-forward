@@ -1,17 +1,35 @@
+import { fileURLToPath } from 'node:url';
 import type { NextConfig } from 'next';
 
-const apiUrl = (process.env.API_URL ?? 'http://localhost:4000').replace(/\/$/, '');
-
 const nextConfig: NextConfig = {
-  // Rewrites are resolved at build time, so E2E builds into its own directory with its own API_URL.
+  // E2E builds into its own directory so it never clobbers a developer's .next.
   distDir: process.env.NEXT_DIST_DIR || '.next',
   reactStrictMode: true,
   poweredByHeader: false,
-  transpilePackages: ['@relay/core', '@relay/ui'],
-  // The browser talks to the API through this origin, so session cookies stay first-party.
-  async rewrites() {
-    return [{ source: '/api/v1/:path*', destination: `${apiUrl}/api/v1/:path*` }];
-  },
+  // Monorepo root, so file tracing includes the API's dependencies in the Vercel function.
+  outputFileTracingRoot: fileURLToPath(new URL('../..', import.meta.url)),
+  // Workspace packages ship TypeScript source.
+  transpilePackages: ['@relay/core', '@relay/ui', '@relay/api', '@relay/db', '@relay/routing'],
+  // The embedded API's server libraries load from node_modules at runtime instead of being
+  // bundled (native addons, Lua scripts and static files resolve relative to their package).
+  serverExternalPackages: [
+    '@fastify/cookie',
+    '@fastify/cors',
+    '@fastify/helmet',
+    '@fastify/rate-limit',
+    '@fastify/swagger',
+    '@fastify/swagger-ui',
+    '@node-rs/argon2',
+    'bullmq',
+    'drizzle-orm',
+    'fastify',
+    'fastify-type-provider-zod',
+    'ioredis',
+    'nodemailer',
+    'postgres',
+  ],
+  // API paths (/api/v1, /voice, /healthz, /readyz, /api/cron) are route handlers in
+  // src/app that run the API in-process or proxy to API_URL; see src/server/api-bridge.ts.
   async headers() {
     return [
       {

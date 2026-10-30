@@ -9,7 +9,7 @@ export default tseslint.config(
       '**/node_modules/**',
       '**/dist/**',
       '**/.next/**',
-      '**/.next-e2e/**',
+      '**/.next-*/**',
       '**/.turbo/**',
       '**/next-env.d.ts',
       '**/playwright-report/**',
