@@ -1,20 +1,26 @@
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { maskE164, normalizeE164 } from '@relay/core';
+import { z } from 'zod';
 import { parseVoiceParams, type VoiceParams } from '@relay/core/server';
-import { voiceUrls } from '../config';
-import { handleDialResult, handleInbound, handleStatus } from '../services/voice';
+import type { VoiceResult } from '../services/voice';
+
+const attemptQuery = z.object({ attempt: z.coerce.number().int().min(1).max(50) });
+const legQuery = attemptQuery.extend({ target: z.uuid() });
 
 /**
- * Carrier-facing voice webhooks. These are the latency-critical path:
- * signature check → cached route → one SQL round trip → TwiML.
- * They are not under /api/v1, carry no session, and are exempt from CSRF
- * (they are authenticated by the carrier signature instead).
+ * Carrier-facing voice webhooks: the latency-critical path. Not under /api/v1,
+ * no session, exempt from CSRF; authenticated by the carrier signature over the
+ * exact public URL (query string included).
+ *
+ *   /voice/inbound          new call → protection → IVR or first dial attempt
+ *   /voice/ivr              press-a-digit answer → first dial attempt or hang up
+ *   /voice/result?attempt=N <Dial> finished → done, or fail over to attempt N+1
+ *   /voice/leg?attempt&target  per-destination ringing/answered/completed
+ *   /voice/status           parent call ended
  */
 export const voiceRoutes: FastifyPluginAsyncZod = async (app) => {
   const deps = app.deps;
   const { provider } = deps;
-  const urls = voiceUrls(deps.config);
 
   function headerRecord(req: FastifyRequest): Record<string, string> {
     const out: Record<string, string> = {};
@@ -25,7 +31,6 @@ export const voiceRoutes: FastifyPluginAsyncZod = async (app) => {
     return out;
   }
 
-  /** Verify the signature against the public URL the carrier called, then parse. */
   function authenticate(req: FastifyRequest, reply: FastifyReply): VoiceParams | null {
     const raw = req.rawBody ?? '';
     const url = `${deps.config.publicApiUrl}${req.url}`;
@@ -51,54 +56,10 @@ export const voiceRoutes: FastifyPluginAsyncZod = async (app) => {
   const xml = (reply: FastifyReply, body: string) =>
     reply.status(200).type(provider.responseContentType).send(body);
 
-  app.post('/voice/inbound', { schema: { hide: true } }, async (req, reply) => {
-    const params = authenticate(req, reply);
-    if (!params) return reply;
-    const to = normalizeE164(params.to);
-    const route = to ? await app.routeCache.get(to) : null;
-    const plan = await handleInbound(deps.sql, provider.id, params, route);
-    req.log.info(
-      { event: 'voice.inbound', callSid: params.callSid, to: maskE164(to), plan: plan.kind },
-      'inbound call',
-    );
-    if (plan.kind === 'hangup') return xml(reply, provider.buildMessageAndHangup(plan.message));
-    return xml(
-      reply,
-      provider.buildInboundResponse({
-        callId: plan.callRowId,
-        to: to ?? params.to,
-        from: params.from,
-        destination: plan.destination,
-        ringTimeoutSec: plan.ringTimeoutSec,
-        resultUrl: urls.resultUrl,
-      }),
-    );
-  });
-
-  app.post('/voice/result', { schema: { hide: true } }, async (req, reply) => {
-    const params = authenticate(req, reply);
-    if (!params) return reply;
-    const changed = await handleDialResult(deps.sql, provider.id, params);
-    if (changed) await enqueue(req, changed);
-    req.log.info(
-      {
-        event: 'voice.result',
-        callSid: params.callSid,
-        dialStatus: params.dialCallStatus,
-        applied: Boolean(changed),
-      },
-      'dial result',
-    );
-    return xml(reply, provider.buildEmptyResponse());
-  });
-
-  app.post('/voice/status', { schema: { hide: true } }, async (req, reply) => {
-    const params = authenticate(req, reply);
-    if (!params) return reply;
-    const changed = await handleStatus(deps.sql, provider.id, params);
-    if (changed) await enqueue(req, changed);
-    return reply.status(204).send();
-  });
+  async function respond(req: FastifyRequest, reply: FastifyReply, result: VoiceResult) {
+    if (result.finished) await enqueue(req, result.finished);
+    return xml(reply, result.twiml);
+  }
 
   async function enqueue(req: FastifyRequest, c: { callId: string; outcome: string }) {
     try {
@@ -108,4 +69,41 @@ export const voiceRoutes: FastifyPluginAsyncZod = async (app) => {
       req.log.error({ err, callId: c.callId }, 'failed to enqueue finalise-call');
     }
   }
+
+  app.post('/voice/inbound', { schema: { hide: true } }, async (req, reply) => {
+    const params = authenticate(req, reply);
+    if (!params) return reply;
+    return respond(req, reply, await app.voice.inbound(params));
+  });
+
+  app.post('/voice/ivr', { schema: { hide: true } }, async (req, reply) => {
+    const params = authenticate(req, reply);
+    if (!params) return reply;
+    return respond(req, reply, await app.voice.ivr(params));
+  });
+
+  app.post('/voice/result', { schema: { hide: true } }, async (req, reply) => {
+    const params = authenticate(req, reply);
+    if (!params) return reply;
+    // Phase 1 numbers configured before attempts existed post without ?attempt; treat as attempt 1.
+    const q = attemptQuery.safeParse(req.query);
+    return respond(req, reply, await app.voice.dialResult(params, q.success ? q.data.attempt : 1));
+  });
+
+  app.post('/voice/leg', { schema: { hide: true } }, async (req, reply) => {
+    const params = authenticate(req, reply);
+    if (!params) return reply;
+    const q = legQuery.safeParse(req.query);
+    if (!q.success) return reply.status(400).type('text/plain').send('Bad leg query');
+    await app.voice.legStatus(params, q.data.attempt, q.data.target);
+    return reply.status(204).send();
+  });
+
+  app.post('/voice/status', { schema: { hide: true } }, async (req, reply) => {
+    const params = authenticate(req, reply);
+    if (!params) return reply;
+    const finished = await app.voice.parentStatus(params);
+    if (finished) await enqueue(req, finished);
+    return reply.status(204).send();
+  });
 };

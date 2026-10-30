@@ -43,8 +43,8 @@ describe('Phase 1 journey: register → buy → forward → call → log', () =>
     expect(inbound.headers['content-type']).toContain('text/xml');
     expect(inbound.body).toContain('<Dial timeout="20" answerOnBridge="true"');
     expect(inbound.body).toContain(`callerId="${number.e164}"`);
-    expect(inbound.body).toContain('action="http://relay.test/voice/result"');
-    expect(inbound.body).toContain('<Number>+14155550123</Number>');
+    expect(inbound.body).toContain('action="http://relay.test/voice/result?attempt=1"');
+    expect(inbound.body).toContain('>+14155550123</Number>');
 
     const inFlight = json<{ data: Array<{ outcome: string }> }>(await client.get('/api/v1/calls'));
     expect(inFlight.data[0]?.outcome).toBe('in_progress');

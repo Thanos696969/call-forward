@@ -60,6 +60,7 @@ export function NumbersView() {
                 <TH>Type</TH>
                 <TH>Status</TH>
                 <TH>Forwards to</TH>
+                <TH>Campaign</TH>
                 <TH>Bought</TH>
               </TR>
             </THead>
@@ -92,6 +93,32 @@ export function NumbersView() {
                       </span>
                     ) : (
                       <span className="text-warn">Not set up</span>
+                    )}
+                  </TD>
+                  <TD>
+                    {n.campaign ? (
+                      <Link
+                        href={`/app/campaigns/${n.campaign.id}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="underline-offset-4 hover:underline"
+                      >
+                        {n.campaign.name}
+                      </Link>
+                    ) : (
+                      <span className="text-muted-foreground">None</span>
+                    )}
+                  </TD>
+                  <TD>
+                    {n.campaign ? (
+                      <Link
+                        href={`/app/campaigns/${n.campaign.id}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="underline-offset-4 hover:underline"
+                      >
+                        {n.campaign.name}
+                      </Link>
+                    ) : (
+                      <span className="text-muted-foreground">None</span>
                     )}
                   </TD>
                   <TD className="text-muted-foreground">{formatDate(n.createdAt, tz)}</TD>

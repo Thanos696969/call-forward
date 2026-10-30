@@ -50,7 +50,7 @@ test('signup → buy number → set destination → simulated call → call in l
     To: e164,
   });
   expect(inbound.status()).toBe(200);
-  expect(await inbound.text()).toContain('<Number>+14155550123</Number>');
+  expect(await inbound.text()).toContain('>+14155550123</Number>');
   const result = await carrierPost(request, '/voice/result', {
     CallSid: callSid,
     DialCallStatus: 'completed',
@@ -72,7 +72,8 @@ test('signup → buy number → set destination → simulated call → call in l
 
   await row.getByRole('link').click();
   await expect(page.getByRole('heading', { name: 'Call from +1 (312) 555-0187' })).toBeVisible();
-  await expect(page.getByText('Attempt 1: rang +1 (415) 555-0123')).toBeVisible();
+  await expect(page.getByText('Attempt 1: tier 1, one at a time')).toBeVisible();
+  await expect(page.getByText('Answered for 1m 13s')).toBeVisible();
 
   await page.getByRole('link', { name: 'Dashboard' }).click();
   await expect(page.getByText('Answer rate')).toBeVisible();

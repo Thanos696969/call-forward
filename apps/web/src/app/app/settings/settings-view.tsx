@@ -1,11 +1,14 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
+  blocklistBodySchema,
   updateOrgBodySchema,
   type AuditLogDto,
+  type BlocklistEntryDto,
   type MemberDto,
   type MeDto,
   type OrgDto,
@@ -34,7 +37,7 @@ import {
   TabsTrigger,
 } from '@relay/ui';
 import { api, ApiError, errorMessage } from '@/lib/api';
-import { formatDate, formatDateTime } from '@/lib/format';
+import { formatDate, formatDateTime, formatPhone } from '@/lib/format';
 import { qk, useMe } from '@/lib/queries';
 import { PageHeader } from '@/components/app-shell';
 import { fieldProps, zodFieldErrors } from '@/components/form-utils';
@@ -42,20 +45,25 @@ import { fieldProps, zodFieldErrors } from '@/components/form-utils';
 export function SettingsView() {
   const me = useMe();
   const canManage = me.data?.role === 'owner' || me.data?.role === 'admin';
+  const tab = useSearchParams().get('tab') ?? 'organisation';
   return (
     <>
       <PageHeader
         title="Settings"
         description="Your organisation, the people in it, and a record of changes."
       />
-      <Tabs defaultValue="organisation">
+      <Tabs defaultValue={tab}>
         <TabsList>
           <TabsTrigger value="organisation">Organisation</TabsTrigger>
+          <TabsTrigger value="blocklist">Blocked callers</TabsTrigger>
           {canManage ? <TabsTrigger value="members">Members</TabsTrigger> : null}
           {canManage ? <TabsTrigger value="audit">Audit log</TabsTrigger> : null}
         </TabsList>
         <TabsContent value="organisation">
           {me.data ? <OrgForm me={me.data} canManage={canManage} /> : <Skeleton className="h-64" />}
+        </TabsContent>
+        <TabsContent value="blocklist">
+          <Blocklist timezone={me.data?.org.timezone ?? 'UTC'} canManage={canManage} />
         </TabsContent>
         {canManage ? (
           <TabsContent value="members">
@@ -270,6 +278,126 @@ function AuditLog({ timezone }: { timezone: string }) {
           </Button>
         </div>
       ) : null}
+    </Card>
+  );
+}
+
+function Blocklist({ timezone, canManage }: { timezone: string; canManage: boolean }) {
+  const qc = useQueryClient();
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const list = useQuery({
+    queryKey: qk.blocklist,
+    queryFn: async () => (await api<BlocklistEntryDto[]>('/blocklist')).data,
+  });
+  const add = useMutation({
+    mutationFn: async (body: unknown) =>
+      (await api<BlocklistEntryDto[]>('/blocklist', { method: 'POST', body })).data,
+    onSuccess: (rows) => {
+      qc.setQueryData(qk.blocklist, rows);
+      toast.success('Blocked. Calls from this number are refused before anything rings.');
+    },
+    onError: (err) => {
+      if (err instanceof ApiError && err.status === 422) setErrors(err.fieldErrors());
+      toast.error(errorMessage(err));
+    },
+  });
+  const remove = useMutation({
+    mutationFn: async (id: string) =>
+      (await api<BlocklistEntryDto[]>(`/blocklist/${id}`, { method: 'DELETE' })).data,
+    onSuccess: (rows) => {
+      qc.setQueryData(qk.blocklist, rows);
+      toast.success('Unblocked');
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  function onSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const fd = new FormData(form);
+    const parsed = blocklistBodySchema.safeParse({
+      e164: String(fd.get('e164') ?? '').replace(/[\s()-]/g, ''),
+      reason: String(fd.get('reason') ?? '').trim() || null,
+    });
+    if (!parsed.success) return setErrors(zodFieldErrors(parsed.error));
+    setErrors({});
+    add.mutate(parsed.data, { onSuccess: () => form.reset() });
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Blocked callers</CardTitle>
+        <CardDescription>
+          Calls from these numbers are refused on every campaign and show as blocked in the call
+          log.
+        </CardDescription>
+      </CardHeader>
+      {canManage ? (
+        <CardContent>
+          <form
+            onSubmit={onSubmit}
+            noValidate
+            className="grid gap-3 sm:grid-cols-[14rem_1fr_auto] sm:items-end"
+          >
+            <Field id="e164" label="Phone number" error={errors.e164}>
+              <Input type="tel" placeholder="+13125550100" {...fieldProps('e164', errors)} />
+            </Field>
+            <Field id="reason" label="Reason (optional)" error={errors.reason}>
+              <Input
+                placeholder="e.g. Robocaller"
+                maxLength={200}
+                {...fieldProps('reason', errors)}
+              />
+            </Field>
+            <Button type="submit" disabled={add.isPending}>
+              {add.isPending ? 'Blocking…' : 'Block number'}
+            </Button>
+          </form>
+        </CardContent>
+      ) : null}
+      {list.isPending ? (
+        <Skeleton className="m-5 h-16" />
+      ) : list.isError ? (
+        <p className="p-5 text-sm text-destructive">{errorMessage(list.error)}</p>
+      ) : list.data.length === 0 ? (
+        <p className="p-5 pt-0 text-sm text-muted-foreground">No blocked numbers.</p>
+      ) : (
+        <Table>
+          <THead>
+            <TR>
+              <TH>Number</TH>
+              <TH>Reason</TH>
+              <TH>Added</TH>
+              {canManage ? <TH className="sr-only">Actions</TH> : null}
+            </TR>
+          </THead>
+          <TBody>
+            {list.data.map((b) => (
+              <TR key={b.id}>
+                <TD className="tnum font-medium">{formatPhone(b.e164)}</TD>
+                <TD className="text-muted-foreground">{b.reason ?? '–'}</TD>
+                <TD className="text-muted-foreground">
+                  {formatDate(b.createdAt, timezone)}
+                  {b.createdBy ? `, ${b.createdBy}` : ''}
+                </TD>
+                {canManage ? (
+                  <TD className="text-right">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={remove.isPending}
+                      onClick={() => remove.mutate(b.id)}
+                    >
+                      Unblock
+                    </Button>
+                  </TD>
+                ) : null}
+              </TR>
+            ))}
+          </TBody>
+        </Table>
+      )}
     </Card>
   );
 }

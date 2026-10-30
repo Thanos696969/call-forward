@@ -8,3 +8,4 @@ playwright-report
 test-results
 .next-e2e
 apps/web/tsconfig.json
+ROADMAP.md

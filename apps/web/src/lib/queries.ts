@@ -16,7 +16,17 @@ export const qk = {
   calls: (filters: Record<string, string>) => ['calls', filters] as const,
   call: (id: string) => ['calls', 'detail', id] as const,
   dashboard: (days: number) => ['dashboard', days] as const,
+  campaigns: ['campaigns'] as const,
+  campaign: (id: string) => ['campaigns', id] as const,
+  live: ['calls', 'live'] as const,
+  blocklist: ['blocklist'] as const,
+  callRouting: (id: string) => ['calls', 'routing', id] as const,
 };
+
+export function useCanManage(): boolean {
+  const me = useMe();
+  return me.data?.role === 'owner' || me.data?.role === 'admin';
+}
 
 export function useMe() {
   return useQuery({

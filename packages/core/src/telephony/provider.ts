@@ -18,13 +18,20 @@ export interface AvailableNumber {
   region: string | null;
 }
 
-export interface InboundResponseInput {
-  callId: string;
-  to: string;
-  from: string;
-  destination: string;
+export interface DialInput {
+  /** The dialled Relay number, shown to destinations as caller ID. */
+  callerId: string;
+  numbers: Array<{ destination: string; statusCallbackUrl?: string }>;
   ringTimeoutSec: number;
-  resultUrl: string;
+  /** Where the carrier posts the dial result (DialCallStatus). */
+  actionUrl: string;
+}
+
+export interface GatherInput {
+  prompt: string;
+  actionUrl: string;
+  timeoutSec: number;
+  noInputMessage: string;
 }
 
 export interface TelephonyProvider {
@@ -35,7 +42,9 @@ export interface TelephonyProvider {
   configureNumber(providerRef: string, cfg: { voiceUrl: string; statusUrl: string }): Promise<void>;
   /** `headers` keys must be lower-case. `url` is the exact public URL the carrier called. */
   verifyWebhook(headers: Record<string, string>, rawBody: string, url: string): boolean;
-  buildInboundResponse(input: InboundResponseInput): string;
+  buildDial(input: DialInput): string;
+  buildGather(input: GatherInput): string;
+  buildReject(): string;
   /** Speak a short message and hang up (number not in service / not configured). */
   buildMessageAndHangup(message: string): string;
   /** A response that tells the carrier there is nothing more to do. */
@@ -77,6 +86,9 @@ export interface VoiceParams {
   dialCallSid?: string;
   callDuration?: string;
   stirVerstat?: string;
+  digits?: string;
+  /** Present on child-leg status callbacks: the inbound call this leg belongs to. */
+  parentCallSid?: string;
   raw: Record<string, string>;
 }
 
@@ -96,6 +108,8 @@ export function parseVoiceParams(rawBody: string): VoiceParams | null {
     dialCallSid: raw.DialCallSid,
     callDuration: raw.CallDuration,
     stirVerstat: raw.StirVerstat,
+    digits: raw.Digits,
+    parentCallSid: raw.ParentCallSid,
     raw,
   };
 }

@@ -1,4 +1,12 @@
 import type { CallOutcome } from './outcome';
+import type {
+  AttestationPolicy,
+  CampaignStatus,
+  RoutingMode,
+  ScheduleWindow,
+  TargetVerdict,
+  TierExplanation,
+} from './routing/types';
 
 /** Response DTOs shared by the API and the web app. Timestamps are ISO-8601 UTC strings. */
 
@@ -61,6 +69,14 @@ export interface ForwardingDto {
   enabled: boolean;
 }
 
+export interface NumberCampaignDto {
+  id: string;
+  name: string;
+  status: CampaignStatus;
+  /** One number and at most one target: the simple forwarding form can edit it. */
+  simple: boolean;
+}
+
 export interface NumberDto {
   id: string;
   e164: string;
@@ -69,6 +85,7 @@ export interface NumberDto {
   provider: 'mock' | 'twilio' | 'telnyx';
   status: NumberStatus;
   forwarding: ForwardingDto;
+  campaign: NumberCampaignDto | null;
   createdAt: string;
   releasedAt: string | null;
 }
@@ -83,6 +100,10 @@ export interface AvailableNumberDto {
 export interface CallLegDto {
   id: string;
   attempt: number;
+  tier: number | null;
+  targetId: string | null;
+  targetName: string | null;
+  talkSeconds: number | null;
   destination: string | null;
   startedAt: string;
   answeredAt: string | null;
@@ -111,6 +132,8 @@ export interface CallDetailDto extends CallDto {
   providerCallId: string;
   hangupCause: string | null;
   metadata: Record<string, unknown>;
+  campaign: { id: string; name: string } | null;
+  attempts: CallAttemptDto[];
   legs: CallLegDto[];
 }
 
@@ -138,3 +161,136 @@ export interface DashboardSummaryDto {
   failed: number;
   daily: DashboardDayDto[];
 }
+
+// ── Phase 2: routing ──────────────────────────────────────────────────────────
+
+export interface TargetUsageDto {
+  concurrent: number;
+  hour: number;
+  day: number;
+  total: number;
+}
+
+export interface ScheduleDto {
+  timezone: string;
+  windows: ScheduleWindow[];
+}
+
+export interface TargetDto {
+  id: string;
+  name: string;
+  type: 'phone' | 'sip' | 'agent';
+  destination: string;
+  priorityTier: number;
+  weight: number;
+  ccCap: number;
+  hourlyCap: number | null;
+  dailyCap: number | null;
+  totalCap: number | null;
+  enabled: boolean;
+  schedule: ScheduleDto | null;
+  /** Live counters from Redis; null when unavailable. */
+  usage: TargetUsageDto | null;
+  /** Is the target inside its schedule right now? */
+  openNow: boolean;
+  createdAt: string;
+}
+
+export interface CampaignSummaryDto {
+  id: string;
+  name: string;
+  status: CampaignStatus;
+  routingMode: RoutingMode;
+  ringTimeoutSec: number;
+  numbers: number;
+  targets: number;
+  enabledTargets: number;
+  ivrEnabled: boolean;
+  createdAt: string;
+}
+
+export interface CampaignDto extends CampaignSummaryDto {
+  ivr: {
+    enabled: boolean;
+    prompt: string | null;
+    digit: string | null;
+    randomDigit: boolean;
+    timeoutSec: number;
+  };
+  protection: {
+    attestationPolicy: AttestationPolicy;
+    perMinute: number | null;
+    perHour: number | null;
+  };
+  unavailableMessage: string | null;
+  attachedNumbers: Array<{ id: string; e164: string; status: NumberStatus }>;
+  targetList: TargetDto[];
+}
+
+export interface BlocklistEntryDto {
+  id: string;
+  e164: string;
+  reason: string | null;
+  createdBy: string | null;
+  createdAt: string;
+}
+
+export interface LiveLegDto {
+  targetId: string | null;
+  targetName: string | null;
+  destination: string | null;
+  attempt: number;
+  state: 'ringing' | 'connected';
+  startedAt: string;
+  answeredAt: string | null;
+}
+
+export interface LiveCallDto {
+  id: string;
+  from: string;
+  numberE164: string;
+  campaign: { id: string; name: string } | null;
+  startedAt: string;
+  state: 'ivr' | 'ringing' | 'connected' | 'routing';
+  attempt: number;
+  legs: LiveLegDto[];
+}
+
+export interface CallAttemptDto {
+  attempt: number;
+  mode: RoutingMode;
+  tier: number;
+  ringTimeoutSec: number;
+  dialStatus: string | null;
+  createdAt: string;
+  completedAt: string | null;
+}
+
+export interface RoutingEventDto {
+  id: string;
+  kind: 'protection' | 'ivr' | 'attempt' | 'exhausted' | 'fallback';
+  attempt: number | null;
+  detail: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface ExplainTargetDto {
+  targetId: string;
+  name: string;
+  destination: string;
+  verdict: TargetVerdict | 'eligible';
+  usage: TargetUsageDto | null;
+  /** Probability of being picked if the call arrived now (sequential mode). */
+  chance: number | null;
+}
+
+export interface ExplainDto {
+  at: string;
+  mode: RoutingMode;
+  campaignStatus: CampaignStatus;
+  /** The tier a call arriving now would ring, or null if nothing is eligible. */
+  wouldRingTier: number | null;
+  tiers: Array<{ tier: number; targets: ExplainTargetDto[] }>;
+}
+
+export type { TierExplanation };

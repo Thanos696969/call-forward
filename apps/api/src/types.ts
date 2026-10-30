@@ -6,7 +6,8 @@ import type { Database } from '@relay/db';
 import type { Config } from './config';
 import type { CallJobs } from './lib/jobs';
 import type { Mailer } from './lib/mailer';
-import type { RouteCache } from './services/route-cache';
+import type { RedisReserver, RouteCache } from '@relay/routing';
+import type { VoiceService } from './services/voice';
 
 export interface AppDeps {
   config: Config;
@@ -16,6 +17,8 @@ export interface AppDeps {
   provider: TelephonyProvider;
   jobs: CallJobs;
   mailer: Mailer;
+  /** Injected by tests for deterministic weighted routing. */
+  random?: () => number;
 }
 
 export interface AuthContext {
@@ -29,6 +32,8 @@ declare module 'fastify' {
   interface FastifyInstance {
     deps: AppDeps;
     routeCache: RouteCache;
+    voice: VoiceService;
+    reserver: RedisReserver;
   }
   interface FastifyRequest {
     /** Raw body for form-encoded carrier webhooks (needed for signature checks). */

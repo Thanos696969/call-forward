@@ -1,5 +1,5 @@
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
-import { and, asc, campaigns, eq, phoneNumbers, targets } from '@relay/db';
+import { and, asc, campaigns, eq, isNull, phoneNumbers, sql, targets } from '@relay/db';
 import { updateForwardingBodySchema, type NumberDto } from '@relay/core';
 import { writeAudit } from '../lib/audit';
 import { HttpError, notFound } from '../lib/errors';
@@ -48,6 +48,19 @@ export const forwardingRoutes: FastifyPluginAsyncZod = async (app) => {
         let campaignId = number.campaignId;
         let beforeTimeout: number | null = null;
         if (campaignId) {
+          // The quick form edits a campaign only while it is "simple": this number, one target.
+          const [shape] = await tx.execute<{ numbers: number; targets: number }>(sql`
+            select (select count(*)::int from phone_numbers where campaign_id = ${campaignId} and status <> 'released') as numbers,
+                   (select count(*)::int from targets where campaign_id = ${campaignId} and archived_at is null) as targets`);
+          if (shape && (shape.numbers > 1 || shape.targets > 1)) {
+            throw new HttpError(
+              409,
+              'campaign_managed',
+              'This number is routed by a campaign with several numbers or targets. Change routing on the campaign page.',
+            );
+          }
+        }
+        if (campaignId) {
           const [c] = await tx
             .select({ ringTimeoutSec: campaigns.ringTimeoutSec })
             .from(campaigns)
@@ -75,6 +88,7 @@ export const forwardingRoutes: FastifyPluginAsyncZod = async (app) => {
               eq(targets.campaignId, campaignId),
               eq(targets.orgId, auth.orgId),
               eq(targets.targetType, 'phone'),
+              isNull(targets.archivedAt),
             ),
           )
           .orderBy(asc(targets.priorityTier), asc(targets.createdAt), asc(targets.id))

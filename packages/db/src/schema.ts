@@ -86,6 +86,13 @@ export const sessions = pgTable('sessions', {
   createdAt: ts('created_at').notNull().defaultNow(),
 });
 
+export const ATTESTATION_POLICIES = [
+  'allow_all',
+  'block_failed',
+  'require_a_or_b',
+  'require_a',
+] as const;
+
 export const campaigns = pgTable('campaigns', {
   id: uuid('id').primaryKey().defaultRandom(),
   orgId: uuid('org_id')
@@ -103,6 +110,14 @@ export const campaigns = pgTable('campaigns', {
   ivrEnabled: boolean('ivr_enabled').notNull().default(false),
   ivrPrompt: text('ivr_prompt'),
   ivrDigit: text('ivr_digit'),
+  ivrRandomDigit: boolean('ivr_random_digit').notNull().default(false),
+  ivrTimeoutSec: integer('ivr_timeout_sec').notNull().default(8),
+  attestationPolicy: text('attestation_policy', { enum: ATTESTATION_POLICIES })
+    .notNull()
+    .default('allow_all'),
+  callerLimitPerMinute: integer('caller_limit_per_minute'),
+  callerLimitPerHour: integer('caller_limit_per_hour'),
+  unavailableMessage: text('unavailable_message'),
   createdAt: ts('created_at').notNull().defaultNow(),
   updatedAt: ts('updated_at').notNull().defaultNow(),
 });
@@ -155,6 +170,7 @@ export const targets = pgTable('targets', {
   dailyCap: integer('daily_cap'),
   totalCap: integer('total_cap'),
   enabled: boolean('enabled').notNull().default(true),
+  archivedAt: ts('archived_at'),
   createdAt: ts('created_at').notNull().defaultNow(),
   updatedAt: ts('updated_at').notNull().defaultNow(),
 });
@@ -178,6 +194,9 @@ export const scheduleWindows = pgTable('schedule_windows', {
   closeTime: time('close_time'),
   dateStart: date('date_start'),
   dateEnd: date('date_end'),
+  kind: text('kind', { enum: ['open', 'closed'] })
+    .notNull()
+    .default('open'),
 });
 
 export const OUTCOMES = [
@@ -238,6 +257,53 @@ export const callLegs = pgTable('call_legs', {
   endedAt: ts('ended_at'),
   outcome: text('outcome'),
   sipCode: integer('sip_code'),
+  destination: text('destination'),
+  tier: integer('tier'),
+  providerLegId: text('provider_leg_id'),
+  talkSeconds: integer('talk_seconds'),
+  releasedAt: ts('released_at'),
+});
+
+export const callAttempts = pgTable('call_attempts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  callId: uuid('call_id')
+    .notNull()
+    .references(() => calls.id, { onDelete: 'cascade' }),
+  orgId: uuid('org_id')
+    .notNull()
+    .references(() => organizations.id, { onDelete: 'cascade' }),
+  attempt: integer('attempt').notNull(),
+  mode: text('mode', { enum: ['sequential', 'simultaneous'] }).notNull(),
+  tier: integer('tier').notNull(),
+  ringTimeoutSec: integer('ring_timeout_sec').notNull(),
+  dialStatus: text('dial_status'),
+  createdAt: ts('created_at').notNull().defaultNow(),
+  completedAt: ts('completed_at'),
+});
+
+export const callRoutingEvents = pgTable('call_routing_events', {
+  id: bigserial('id', { mode: 'bigint' }).primaryKey(),
+  callId: uuid('call_id')
+    .notNull()
+    .references(() => calls.id, { onDelete: 'cascade' }),
+  orgId: uuid('org_id')
+    .notNull()
+    .references(() => organizations.id, { onDelete: 'cascade' }),
+  attempt: integer('attempt'),
+  kind: text('kind', { enum: ['protection', 'ivr', 'attempt', 'exhausted', 'fallback'] }).notNull(),
+  detail: jsonb('detail').$type<Record<string, unknown>>().notNull().default({}),
+  createdAt: ts('created_at').notNull().defaultNow(),
+});
+
+export const blocklistEntries = pgTable('blocklist_entries', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id')
+    .notNull()
+    .references(() => organizations.id, { onDelete: 'cascade' }),
+  e164: text('e164').notNull(),
+  reason: text('reason'),
+  createdBy: uuid('created_by').references(() => users.id),
+  createdAt: ts('created_at').notNull().defaultNow(),
 });
 
 export const recordings = pgTable('recordings', {
@@ -294,3 +360,7 @@ export type Target = typeof targets.$inferSelect;
 export type Call = typeof calls.$inferSelect;
 export type CallLeg = typeof callLegs.$inferSelect;
 export type AuditLog = typeof auditLogs.$inferSelect;
+export type Schedule = typeof schedules.$inferSelect;
+export type ScheduleWindow = typeof scheduleWindows.$inferSelect;
+export type CallAttempt = typeof callAttempts.$inferSelect;
+export type BlocklistEntry = typeof blocklistEntries.$inferSelect;

@@ -22,7 +22,11 @@ import { forwardingRoutes } from './routes/forwarding';
 import { numberRoutes } from './routes/numbers';
 import { orgRoutes } from './routes/org';
 import { voiceRoutes } from './routes/voice';
-import { RouteCache } from './services/route-cache';
+import { RedisReserver, RouteCache } from '@relay/routing';
+import { blocklistRoutes } from './routes/blocklist';
+import { campaignRoutes } from './routes/campaigns';
+import { voiceUrls } from './config';
+import { VoiceService } from './services/voice';
 import type { AppDeps } from './types';
 
 const REQUEST_ID_RE = /^[A-Za-z0-9._-]{8,64}$/;
@@ -56,7 +60,21 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
   app.decorate('deps', deps);
-  app.decorate('routeCache', new RouteCache(deps.redis, deps.sql, app.log));
+  const routeCache = new RouteCache(deps.redis, deps.sql, app.log);
+  app.decorate('routeCache', routeCache);
+  app.decorate('reserver', new RedisReserver(deps.redis));
+  app.decorate(
+    'voice',
+    new VoiceService({
+      sql: deps.sql,
+      redis: deps.redis,
+      provider: deps.provider,
+      routeCache,
+      urls: voiceUrls(deps.config),
+      log: app.log,
+      ...(deps.random ? { random: deps.random } : {}),
+    }),
+  );
   app.decorateRequest('auth', null);
 
   app.addHook('onRequest', async (req, reply) => {
@@ -81,7 +99,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await app.register(cors, {
     origin: [deps.config.webOrigin],
     credentials: true,
-    methods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
     allowedHeaders: ['content-type', 'x-csrf-token', 'x-request-id'],
   });
   await app.register(cookie);
@@ -174,6 +192,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await app.register(numberRoutes, { prefix: '/api/v1' });
   await app.register(forwardingRoutes, { prefix: '/api/v1' });
   await app.register(callRoutes, { prefix: '/api/v1' });
+  await app.register(campaignRoutes, { prefix: '/api/v1' });
+  await app.register(blocklistRoutes, { prefix: '/api/v1' });
 
   return app;
 }
