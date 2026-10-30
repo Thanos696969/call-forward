@@ -25,7 +25,6 @@
   },
   "include": [
     ".next-e2e/types/**/*.ts",
-    ".next-embed/types/**/*.ts",
     ".next/types/**/*.ts",
     "e2e",
     "next-env.d.ts",
